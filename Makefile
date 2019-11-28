@@ -6,7 +6,7 @@ CCFLAGS	= -Wall
 all: fs
 
 clean:
-	rm *.o FileSystem
+	rm *.o fs
 
 compile: FileSystem.cc
 	$(CC) $(CCFLAGS) -c FileSystem.cc -o FileSystem.o

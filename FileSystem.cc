@@ -39,3 +39,7 @@ void fs_defrag(void)
 void fs_cd(char name[5])
 {
 }
+
+int main(int argc, char *argv[])
+{
+}
