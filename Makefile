@@ -15,4 +15,4 @@ fs: FileSystem.o
 	$(CC) $(CCFLAGS) -o fs FileSystem.o
 	
 compress:
-	zip fs-sim.zip FileSystem.cc FileSystem.h create_fs Makefile README.md
+	zip fs-sim.zip FileSystem.cc FileSystem.h Makefile README.md
