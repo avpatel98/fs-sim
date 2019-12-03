@@ -5,6 +5,35 @@
 
 uint8_t data_buffer[BUFF_SIZE];
 
+int fs_get_arg(char* arg_str)
+{
+    arg_str = strtok(NULL, " \t");
+    if (arg_str == NULL)
+    {
+        return -1;
+    }
+    return 0;
+}
+
+int fs_validate_name_length(char *name)
+{
+    size_t name_len = str_len(name);
+    if (name_len > 5)
+    {
+        return -1;
+    }
+    return 0;
+}
+
+int fs_validate_block_num(int block_num)
+{
+    if ((block_num < 1) || block_num > 127)
+    {
+        return -1;
+    }
+    return 0;
+}
+
 void fs_mount(char *new_disk_name)
 {
 }
@@ -63,37 +92,107 @@ int main(int argc, char **argv)
     }
 
     char command_str[COMMAND_MAX_SIZE];
+    uint32_t line_num = 0;
 
     // Read one line from input file at a time
     while (fgets(command_str, COMMAND_MAX_SIZE, fp) != NULL)
     {
-        // Strip newline character or continue if empty command
         size_t command_len = strlen(command_str);
-        if (command_len <= 0)
+        if (command_len > 0)
         {
-            continue;
-        }
-        if (command_str[command_len - 1] == '\n')
-        {
-            if (command_len == 1)
+            if (command_str[command_len - 1] == '\n')
             {
-                continue;
-            }
-            else
-            {
+                // Strip newline character
                 command_str[command_len - 1] = '\0';
+
+                char *command = strtok(command_str, " \t");
+
+                if (strcmp(command, "M") == 0)
+                {
+                    char *new_disk_name;
+
+                    if (fs_get_arg(new_disk_name) == 0)
+                    {
+                        if (strtok(NULL, " \t") == NULL)
+                        {
+                            fs_mount(new_disk_name);
+                            continue;
+                        }
+                    }
+                }
+                else if (strcmp(command, "C") == 0)
+                {
+                    char *name;
+                    char *size_str;
+                    int size;
+
+                    if (fs_get_arg(name) == 0)
+                    {
+                        if (fs_validate_name_length(name) == 0)
+                        {
+                            if (fs_get_arg(size_str) == 0)
+                            {
+                                size = atoi(size_str);
+                                if (strtok(NULL, " \t") == NULL)
+                                {
+                                    fs_create(name, size);
+                                    continue;
+                                }
+                            }
+                        }
+                    }
+                }
+                else if (strcmp(command, "D") == 0)
+                {
+                    char *name = strtok(command_str, " \t");
+
+
+                    strtok(NULL, " \t");
+
+                    if (fs_validate_name_length == 0)
+                    {
+                        fs_mount(new_disk_name);
+                        continue;
+                    }
+                    fs_delete(name);
+                }
+                else if (strcmp(command, "R") == 0)
+                {
+                    char *name = strtok(command_str, " \t");
+                    int block_num = atoi(strtok(NULL, " \t"));
+                    fs_read(name, block_num);
+                }
+                else if (strcmp(command, "W") == 0)
+                {
+                    char *name = strtok(command_str, " \t");
+                    int block_num = atoi(strtok(NULL, " \t"));
+                    fs_write(name, block_num);
+                }
+                else if (strcmp(command, "B") == 0)
+                {
+                    uint8_t *buff = (uint8_t *) strtok(command_str, " \t");
+                    fs_buff(buff);
+                }
+                else if (strcmp(command, "L") == 0)
+                {
+                    fs_ls();
+                }
+                else if (strcmp(command, "E") == 0)
+                {
+                    char *name = strtok(command_str, " \t");
+                    int new_size = atoi(strtok(NULL, " \t"));
+                    fs_resize(name, new_size);
+                }
+                else if (strcmp(command, "E") == 0)
+                {
+                    fs_defrag();
+                }
+                else if (strcmp(command, "Y") == 0)
+                {
+                    char *name = strtok(command_str, " \t");
+                    fs_cd(name);
+                }
             }
-        }
-
-        char command = command_str[0];
-
-        if (command == 'M')
-        {
-            fs_mount(&command_str[1]);
-        }
-        else if (command == 'C')
-        {
-            
         }
     }
 
