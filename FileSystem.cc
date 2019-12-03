@@ -1,18 +1,27 @@
 #include "FileSystem.h"
 
-#define COMMAND_MAX_SIZE		2048
+#define CMD_MAX_SIZE            2048
 #define BUFF_SIZE               1024
 
 uint8_t data_buffer[BUFF_SIZE];
 
-int fs_get_arg(char* arg_str)
+uint8_t fs_tokenize(char *command_str, char **tokens)
 {
-    arg_str = strtok(NULL, " \t");
-    if (arg_str == NULL)
-    {
-        return -1;
-    }
-    return 0;
+	char *token;
+    uint8_t num;
+
+	token = strtok(command_str, " /t");
+	for (num = 1; num < 6; num++)
+	{
+		tokens[num - 1] = token;
+		token = strtok(NULL, " /t");
+        if (token == NULL)
+        {
+            break;
+        }
+	}
+
+    return num;
 }
 
 int fs_validate_name_length(char *name)
@@ -84,116 +93,158 @@ int main(int argc, char **argv)
     }
 
     // Open file for reading
-    FILE *fp = fopen(argv[1], "r");
+    char *file_name = argv[1];
+    FILE *fp = fopen(file_name, "r");
     if (fp == NULL)
     {
         fprintf(stderr, "Error: Failed to open input file\n");
         return -1;
     }
 
-    char command_str[COMMAND_MAX_SIZE];
-    uint32_t line_num = 0;
+    char cmd_str[CMD_MAX_SIZE];
+    int line_num = 1;
 
     // Read one line from input file at a time
-    while (fgets(command_str, COMMAND_MAX_SIZE, fp) != NULL)
+    while (fgets(cmd_str, CMD_MAX_SIZE, fp) != NULL)
     {
-        size_t command_len = strlen(command_str);
-        if (command_len > 0)
+        size_t cmd_len = strlen(cmd_str);
+        if (cmd_len > 0)
         {
-            if (command_str[command_len - 1] == '\n')
+            if (cmd_str[cmd_len - 1] == '\n')
             {
                 // Strip newline character
-                command_str[command_len - 1] = '\0';
+                cmd_str[cmd_len - 1] = '\0';
 
-                char *command = strtok(command_str, " \t");
+                char *cmd_args[5] = {NULL};
+                uint8_t cmd_args_num = fs_tokenize(cmd_str, cmd_args);
 
-                if (strcmp(command, "M") == 0)
+                char *cmd = cmd_args[0];
+
+                if (strcmp(cmd, "M") == 0)
                 {
-                    char *new_disk_name;
-
-                    if (fs_get_arg(new_disk_name) == 0)
+                    if (cmd_args_num == 2)
                     {
-                        if (strtok(NULL, " \t") == NULL)
+                        char *new_disk_name = cmd_args[1];
+
+                        fs_mount(new_disk_name);
+                        continue;
+                    }
+                }
+                else if (strcmp(cmd, "C") == 0)
+                {
+                    if (cmd_args_num == 3)
+                    {
+                        char *name = cmd_args[1];
+                        int size = atoi(cmd_args[2]);
+
+                        if (fs_validate_name_length(name) == 0)
                         {
-                            fs_mount(new_disk_name);
+                            fs_create(name, size);
                             continue;
                         }
                     }
                 }
-                else if (strcmp(command, "C") == 0)
+                else if (strcmp(cmd, "D") == 0)
                 {
-                    char *name;
-                    char *size_str;
-                    int size;
-
-                    if (fs_get_arg(name) == 0)
+                    if (cmd_args_num == 2)
                     {
+                        char *name = cmd_args[1];
+
                         if (fs_validate_name_length(name) == 0)
                         {
-                            if (fs_get_arg(size_str) == 0)
-                            {
-                                size = atoi(size_str);
-                                if (strtok(NULL, " \t") == NULL)
-                                {
-                                    fs_create(name, size);
-                                    continue;
-                                }
-                            }
+                            fs_delete(name);;
+                            continue;
                         }
                     }
                 }
-                else if (strcmp(command, "D") == 0)
+                else if (strcmp(cmd, "R") == 0)
                 {
-                    char *name = strtok(command_str, " \t");
-
-
-                    strtok(NULL, " \t");
-
-                    if (fs_validate_name_length == 0)
+                    if (cmd_args_num == 3)
                     {
-                        fs_mount(new_disk_name);
+                        char *name = cmd_args[1];
+                        int block_num = atoi(cmd_args[2]);
+
+                        if ((fs_validate_name_length(name) == 0)
+                            && (fs_validate_block_num(block_num) == 0))
+                        {
+                            fs_read(name, block_num);
+                            continue;
+                        }
+                    }
+                }
+                else if (strcmp(cmd, "W") == 0)
+                {
+                    if (cmd_args_num == 3)
+                    {
+                        char *name = cmd_args[1];
+                        int block_num = atoi(cmd_args[2]);
+
+                        if ((fs_validate_name_length(name) == 0)
+                            && (fs_validate_block_num(block_num) == 0))
+                        {
+                            fs_write(name, block_num);;
+                            continue;
+                        }
+                    }
+                }
+                else if (strcmp(cmd, "B") == 0)
+                {
+                    if (cmd_args_num == 2)
+                    {
+                        uint8_t *buff = (uint8_t *) cmd_args[1];
+
+                        fs_buff(buff);
                         continue;
                     }
-                    fs_delete(name);
                 }
-                else if (strcmp(command, "R") == 0)
+                else if (strcmp(cmd, "L") == 0)
                 {
-                    char *name = strtok(command_str, " \t");
-                    int block_num = atoi(strtok(NULL, " \t"));
-                    fs_read(name, block_num);
+                    if (cmd_args_num == 1)
+                    {
+                        fs_ls();
+                        continue;
+                    }
                 }
-                else if (strcmp(command, "W") == 0)
+                else if (strcmp(cmd, "E") == 0)
                 {
-                    char *name = strtok(command_str, " \t");
-                    int block_num = atoi(strtok(NULL, " \t"));
-                    fs_write(name, block_num);
+                    if (cmd_args_num == 3)
+                    {
+                        char *name = cmd_args[1];
+                        int new_size = atoi(cmd_args[2]);
+
+                        if (fs_validate_name_length(name) == 0)
+                        {
+                            fs_resize(name, new_size);
+                            continue;
+                        }
+                    }
                 }
-                else if (strcmp(command, "B") == 0)
+                else if (strcmp(cmd, "E") == 0)
                 {
-                    uint8_t *buff = (uint8_t *) strtok(command_str, " \t");
-                    fs_buff(buff);
+                    if (cmd_args_num == 1)
+                    {
+                        fs_defrag();
+                        continue;
+                    }
                 }
-                else if (strcmp(command, "L") == 0)
+                else if (strcmp(cmd, "Y") == 0)
                 {
-                    fs_ls();
-                }
-                else if (strcmp(command, "E") == 0)
-                {
-                    char *name = strtok(command_str, " \t");
-                    int new_size = atoi(strtok(NULL, " \t"));
-                    fs_resize(name, new_size);
-                }
-                else if (strcmp(command, "E") == 0)
-                {
-                    fs_defrag();
-                }
-                else if (strcmp(command, "Y") == 0)
-                {
-                    char *name = strtok(command_str, " \t");
-                    fs_cd(name);
+                    if (cmd_args_num == 2)
+                    {
+                        char *name = cmd_args[1];
+
+                        if (fs_validate_name_length(name) == 0)
+                        {
+                            fs_cd(name);;
+                            continue;
+                        }
+                    }
                 }
             }
         }
+
+        fprintf(stderr, "Command Error: %s, %d\n", file_name, line_num);
+        line_num++;
     }
 
     fclose(fp);
