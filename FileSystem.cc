@@ -66,10 +66,49 @@ int fs_validate_block_num(int block_num)
     return -1;
 }
 
+void fs_set_free_blocks(uint8_t start_block, uint8_t end_block, uint8_t value)
+{
+	for (uint8_t i = start_block; i <= end_block; i++)
+	{
+		uint8_t list_index = i / 8;
+		uint8_t bit_index = 7 - (i % 8);
+
+		if (value == 0)
+		{
+			disk_sb.free_block_list[list_index] &= ~(1 << bit_index);
+		}
+		else
+		{
+			disk_sb.free_block_list[list_index] |= (1 << bit_index);
+		}
+	}
+}
+
+int fs_check_for_file(char name[5])
+{
+	std::map< uint8_t, std::vector<uint8_t> >::iterator map_it;
+
+	map_it = dir_map.find(curr_dir);
+	if (!map_it->second.empty())
+	{
+		for (std::vector<uint8_t>::iterator it = map_it->second.begin(); it != map_it->second.end(); it++)
+		{
+			Inode *cmp_inode = &disk_sb.inode[*it];
+
+			if (strncmp(name, cmp_inode->name, 5) == 0)
+			{
+				return (int) *it;
+			}
+		}
+	}
+
+	return -1;
+}
+
 void fs_mount(char *new_disk_name)
 {
     int fd = open(new_disk_name, O_RDONLY);
-    if (fd == -1)
+    if (fd < 0)
     {
         fprintf(stderr, "Error: Cannot find disk %s\n", new_disk_name);
         return;
@@ -81,7 +120,7 @@ void fs_mount(char *new_disk_name)
     // Consistency Check 1
     for (uint8_t i = 0; i < 16; i++)
     {
-		uint8_t fb_byte = (uint8_t) new_disk_sb.free_block_list[i];
+		char fb_byte = new_disk_sb.free_block_list[i];
 
         for (uint8_t j = 0; j < 8; j++)
         {
@@ -324,35 +363,24 @@ void fs_create(char name[5], int size)
 
 		if (CHECK_BIT(curr_inode->used_size, 7) == 0)
 		{
-			std::map< uint8_t, std::vector<uint8_t> >::iterator map_it;
-
-			map_it = dir_map.find(curr_dir);
-			if (!map_it->second.empty())
+			if (fs_check_for_file(name) >= 0)
 			{
-				for (std::vector<uint8_t>::iterator it = map_it->second.begin(); it != map_it->second.end(); it++)
-				{
-					Inode *cmp_inode = &disk_sb.inode[*it];
-
-					if (strncmp(curr_inode->name, cmp_inode->name, 5) == 0)
-					{
-						// TODO: Test this line with name of length 5
-						fprintf(stderr, "Error: File or directory %s already exists\n", name);
-						return;
-					}
-				}
+				// TODO: Test this line with name of length 5
+				fprintf(stderr, "Error: File or directory %s already exists\n", name);
+				return;
 			}
 
 			uint8_t start_block_num = 128;
 
-			for (uint8_t i = 0; i < 16; i++)
+			for (uint8_t j = 0; j < 16; j++)
 		    {
-				uint8_t fb_byte = (uint8_t) new_disk_sb.free_block_list[i];
+				uint8_t fb_byte = (uint8_t) new_disk_sb.free_block_list[j];
 
-				for (uint8_t j = 0; j < 8; j++)
+				for (uint8_t k = 0; k < 8; k++)
 		        {
-					uint8_t block_num = (i * 8) + j;
+					uint8_t block_num = (j * 8) + k;
 
-					if (CHECK_BIT(fb_byte, 7 - i) == 0)
+					if (CHECK_BIT(fb_byte, 7 - k) == 0)
 					{
 						if (start_block_num != 128)
 						{
@@ -363,10 +391,21 @@ void fs_create(char name[5], int size)
 						{
 							strncpy(curr_inode->name, name, 5);
 							curr_inode->size = 0x80 | size;
+							curr_inode->start_block = start_block_num;
 
-							// Set rest of inode
-							// Set bits in free block list
-							// Add new file to maps
+							if (size == 0)
+							{
+								curr_inode->dir_parent = 0x80 | curr_dir;
+							}
+							else
+							{
+								curr_inode->dir_parent = curr_dir;
+							}
+
+							fs_set_free_blocks(start_block_num, block_num, 1);
+
+							files.insert(std::pair<char *, uint8_t>(curr_inode->name, start_block_num));
+							map_it->second.push_back(i);
 
 							return;
 						}
@@ -385,11 +424,27 @@ void fs_create(char name[5], int size)
 	}
 
 	// TODO: Test this line with name of length 5
-	fprintf(stderr, "Superblock in disk %s is full, cannot create %s\n", disk_name, name);
+	fprintf(stderr, "Error: Superblock in disk %s is full, cannot create %s\n", disk_name, name);
+}
+
+void fs_delete_r(uint8_t inode)
+{
+	
 }
 
 void fs_delete(char name[5])
 {
+	int inode_index = fs_check_for_file(name);
+
+	if (inode_index < 0)
+	{
+		// TODO: Test this line with name of length 5
+		fprintf(stderr, "Error: File or directory %s does not exist\n", name);
+	}
+	else
+	{
+		fs_delete_r((uint8_t) inode_index);
+	}
 }
 
 void fs_read(char name[5], int block_num)
