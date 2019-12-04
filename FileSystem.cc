@@ -7,10 +7,10 @@
 
 Super_block disk_sb;
 char disk_name[50] = "";
-uint8_t curr_work_dir = 0;
+uint8_t curr_dir = 0;
 
 std::map< uint8_t, std::vector<uint8_t> > dir_map;
-std::map< char *, uint8_t > files;
+std::map<char *, uint8_t> files;
 
 uint8_t data_buffer[BUFF_SIZE];
 
@@ -41,23 +41,29 @@ uint8_t fs_tokenize(char *command_str, char **tokens)
     return num;
 }
 
-int fs_validate_name_length(char *name)
+int fs_validate_name(char *name)
 {
     size_t name_len = strlen(name);
-    if (name_len > 5)
+    if (name_len < 5)
     {
-        return -1;
+		if (strcmp(name, ".") != 0)
+		{
+			if (strcmp(name, ".") != 0)
+			{
+				return 0;
+			}
+		}
     }
-    return 0;
+    return -1;
 }
 
 int fs_validate_block_num(int block_num)
 {
-    if ((block_num < 1) || (block_num > 127))
+    if ((block_num >= 1) && (block_num <= 127))
     {
-        return -1;
+        return 0;
     }
-    return 0;
+    return -1;
 }
 
 void fs_mount(char *new_disk_name)
@@ -279,9 +285,9 @@ void fs_mount(char *new_disk_name)
     // Mount disk
     disk_sb = new_disk_sb;
 	strcpy(disk_name, new_disk_name);
-    curr_work_dir = 127;
+    curr_dir = 127;
 
-    dir_map.insert(std::pair< uint8_t, std::vector<uint8_t> >(curr_work_dir, std::vector<uint8_t>()));
+    dir_map.insert(std::pair< uint8_t, std::vector<uint8_t> >(curr_dir, std::vector<uint8_t>()));
 
     for (uint8_t i = 0; i < 126; i++)
     {
@@ -289,7 +295,7 @@ void fs_mount(char *new_disk_name)
 
         if (CHECK_BIT(curr_inode->used_size, 7))
         {
-            files.insert(std::pair< char *, uint8_t >(curr_inode->name, i));
+            files.insert(std::pair<char *, uint8_t>(curr_inode->name, i));
 
             if (CHECK_BIT(curr_inode->dir_parent, 7) == 0)
             {
@@ -318,11 +324,67 @@ void fs_create(char name[5], int size)
 
 		if (CHECK_BIT(curr_inode->used_size, 7) == 0)
 		{
+			std::map< uint8_t, std::vector<uint8_t> >::iterator map_it;
 
+			map_it = dir_map.find(curr_dir);
+			if (!map_it->second.empty())
+			{
+				for (std::vector<uint8_t>::iterator it = map_it->second.begin(); it != map_it->second.end(); it++)
+				{
+					Inode *cmp_inode = &disk_sb.inode[*it];
+
+					if (strncmp(curr_inode->name, cmp_inode->name, 5) == 0)
+					{
+						// TODO: Test this line with name of length 5
+						fprintf(stderr, "Error: File or directory %s already exists\n", name);
+						return;
+					}
+				}
+			}
+
+			uint8_t start_block_num = 128;
+
+			for (uint8_t i = 0; i < 16; i++)
+		    {
+				uint8_t fb_byte = (uint8_t) new_disk_sb.free_block_list[i];
+
+				for (uint8_t j = 0; j < 8; j++)
+		        {
+					uint8_t block_num = (i * 8) + j;
+
+					if (CHECK_BIT(fb_byte, 7 - i) == 0)
+					{
+						if (start_block_num != 128)
+						{
+							start_block_num = block_num;
+						}
+
+						if ((block_num + 1 - start_block_num) == size)
+						{
+							strncpy(curr_inode->name, name, 5);
+							curr_inode->size = 0x80 | size;
+
+							// Set rest of inode
+							// Set bits in free block list
+							// Add new file to maps
+
+							return;
+						}
+					}
+					else
+					{
+						start_block_num = 128;
+					}
+				}
+			}
+
+			// TODO: Test this line with name of length 5
+			fprintf(stderr, "Error: Cannot allocate %s on %s\n", name, disk_name);
+			return;
 		}
 	}
 
-	// Test this line with name of length 5
+	// TODO: Test this line with name of length 5
 	fprintf(stderr, "Superblock in disk %s is full, cannot create %s\n", disk_name, name);
 }
 
@@ -379,6 +441,8 @@ int main(int argc, char **argv)
     char cmd_str[CMD_MAX_SIZE];
     int line_num = 1;
 
+	// TODO: Validate size
+
     // Read one line from input file at a time
     while (fgets(cmd_str, CMD_MAX_SIZE, fp) != NULL)
     {
@@ -413,7 +477,7 @@ int main(int argc, char **argv)
                         char *name = cmd_args[1];
                         int size = atoi(cmd_args[2]);
 
-                        if (fs_validate_name_length(name) == 0)
+                        if (fs_validate_name(name) == 0)
                         {
                             fs_create(name, size);
                             continue;
@@ -426,7 +490,7 @@ int main(int argc, char **argv)
                     {
                         char *name = cmd_args[1];
 
-                        if (fs_validate_name_length(name) == 0)
+                        if (fs_validate_name(name) == 0)
                         {
                             fs_delete(name);;
                             continue;
@@ -440,7 +504,7 @@ int main(int argc, char **argv)
                         char *name = cmd_args[1];
                         int block_num = atoi(cmd_args[2]);
 
-                        if ((fs_validate_name_length(name) == 0)
+                        if ((fs_validate_name(name) == 0)
                             && (fs_validate_block_num(block_num) == 0))
                         {
                             fs_read(name, block_num);
@@ -455,7 +519,7 @@ int main(int argc, char **argv)
                         char *name = cmd_args[1];
                         int block_num = atoi(cmd_args[2]);
 
-                        if ((fs_validate_name_length(name) == 0)
+                        if ((fs_validate_name(name) == 0)
                             && (fs_validate_block_num(block_num) == 0))
                         {
                             fs_write(name, block_num);;
@@ -493,7 +557,7 @@ int main(int argc, char **argv)
                         char *name = cmd_args[1];
                         int new_size = atoi(cmd_args[2]);
 
-                        if (fs_validate_name_length(name) == 0)
+                        if (fs_validate_name(name) == 0)
                         {
                             fs_resize(name, new_size);
                             continue;
@@ -514,7 +578,7 @@ int main(int argc, char **argv)
                     {
                         char *name = cmd_args[1];
 
-                        if (fs_validate_name_length(name) == 0)
+                        if (fs_validate_name(name) == 0)
                         {
                             fs_cd(name);;
                             continue;
