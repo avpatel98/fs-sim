@@ -4,7 +4,7 @@
 #define BUFF_SIZE               1024
 
 Super_block disk_sb;
-char[50] disk_name = "";
+char disk_name[50] = "";
 uint8_t curr_work_dir = 0;
 
 std::map< uint8_t, std::vector<uint8_t> > dir_map;
@@ -142,7 +142,7 @@ void fs_mount(char *new_disk_name)
                 if (i != j)
                 {
                     Inode *cmp_inode = &new_disk_sb.inode[j];
-					
+
                     if (cmp_inode->used_size & (1 << 7))
                     {
 						uint8_t cmp_parent = cmp_inode->dir_parent & 0x7F;
