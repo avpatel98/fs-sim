@@ -4,20 +4,32 @@
 #define BUFF_SIZE               1024
 
 uint8_t data_buffer[BUFF_SIZE];
+Super_block disk_sb;
+std::map< uint8_t, std::vector<uint8_t> > directory_map;
+std::map< char *, uint8_t > files;
+uint8_t curr_work_dir = 127;
 
 uint8_t fs_tokenize(char *command_str, char **tokens)
 {
 	char *token;
     uint8_t num;
 
-	token = strtok(command_str, " /t");
+	token = strtok(command_str, " \t");
+
 	for (num = 1; num < 6; num++)
 	{
 		tokens[num - 1] = token;
-		token = strtok(NULL, " /t");
+		token = strtok(NULL, " \t");
+
         if (token == NULL)
         {
             break;
+        }
+
+        if (strcmp(tokens[0], "B") == 0)
+        {
+            tokens[1] = token;
+            return 2;
         }
 	}
 
@@ -26,7 +38,7 @@ uint8_t fs_tokenize(char *command_str, char **tokens)
 
 int fs_validate_name_length(char *name)
 {
-    size_t name_len = str_len(name);
+    size_t name_len = strlen(name);
     if (name_len > 5)
     {
         return -1;
@@ -36,7 +48,7 @@ int fs_validate_name_length(char *name)
 
 int fs_validate_block_num(int block_num)
 {
-    if ((block_num < 1) || block_num > 127)
+    if ((block_num < 1) || (block_num > 127))
     {
         return -1;
     }
@@ -45,6 +57,231 @@ int fs_validate_block_num(int block_num)
 
 void fs_mount(char *new_disk_name)
 {
+    int fd = open(new_disk_name, O_RDONLY);
+    if (fd == -1)
+    {
+        fprintf(stderr, "Error: Cannot find disk %s\n", new_disk_name);
+        return;
+    }
+
+    Super_block new_disk_sb;
+    read(fd, &new_disk_sb, BUFF_SIZE);
+
+    // Consistency Check 1
+    for (uint8_t i = 0; i < 16; i++)
+    {
+        std::bitset<8> fb_byte(new_disk_sb.free_block_list[i]);
+        for (uint8_t j = 0; j < 8; j++)
+        {
+            if ((i == 0) && (j == 0))
+            {
+                if (fb_byte.test(7 - j) == false)
+                {
+                    fprintf(stderr, "Error: File system in %s is inconsistent (error code: 1)\n", new_disk_name);
+                    return;
+                }
+                continue;
+            }
+
+            uint8_t block_num = (i * 8) + j;
+            uint8_t used = 0;
+
+            for (uint8_t k = 0; k < 126; k++)
+            {
+                Inode *curr_inode = &new_disk_sb.inode[k];
+                if (curr_inode->used_size & (1 << 7))
+                {
+                    if ((curr_inode->dir_parent & (1 << 7)) == 0)
+                    {
+                        uint8_t size = curr_inode->used_size & 0x7F;
+
+                        if (size > 0)
+                        {
+                            if ((block_num >= curr_inode->start_block)
+                                && (block_num <= (curr_inode->start_block + size - 1)))
+                            {
+                                if (fb_byte.test(7 - j) == false)
+                                {
+                                    fprintf(stderr, "Error: File system in %s is inconsistent (error code: 1)\n", new_disk_name);
+                                    return;
+                                }
+                                if (used)
+                                {
+                                    fprintf(stderr, "Error: File system in %s is inconsistent (error code: 1)\n", new_disk_name);
+                                    return;
+                                }
+                                used = 1;
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (fb_byte.test(7 - j) && (used == 0))
+            {
+                fprintf(stderr, "Error: File system in %s is inconsistent (error code: 1)\n", new_disk_name);
+                return;
+            }
+        }
+    }
+
+    // Consistency Check 2
+    for (uint8_t i = 0; i < 126; i++)
+    {
+        Inode *curr_inode = &new_disk_sb.inode[i];
+
+        if (curr_inode->used_size & (1 << 7))
+        {
+            for (uint8_t j = 0; j < 126; j++)
+            {
+                if (i != j)
+                {
+                    Inode *cmp_inode = &new_disk_sb.inode[j];
+                    if (cmp_inode->used_size & (1 << 7))
+                    {
+                        if (strncmp(curr_inode->name, cmp_inode->name, 5) == 0)
+                        {
+                            fprintf(stderr, "Error: File system in %s is inconsistent (error code: 2)\n", new_disk_name);
+                            return;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Consistency Check 3
+    for (uint8_t i = 0; i < 126; i++)
+    {
+        Inode *curr_inode = &new_disk_sb.inode[i];
+
+        if ((curr_inode->used_size & (1 << 7)) == 0)
+        {
+            for (uint8_t i = 0; i < 5; i++)
+            {
+                if (curr_inode->name[i] != '\0')
+                {
+                    fprintf(stderr, "Error: File system in %s is inconsistent (error code: 3)\n", new_disk_name);
+                    return;
+                }
+            }
+
+            if ((curr_inode->used_size != 0)
+                || (curr_inode->start_block != 0)
+                || (curr_inode->dir_parent != 0))
+            {
+                fprintf(stderr, "Error: File system in %s is inconsistent (error code: 3)\n", new_disk_name);
+                return;
+            }
+        }
+        else
+        {
+            uint8_t non_zero_present = 0;
+
+            for (uint8_t i = 0; i < 5; i++)
+            {
+                if (curr_inode->name[i] != '\0')
+                {
+                    non_zero_present = 1;
+                    break;
+                }
+            }
+
+            if (non_zero_present == 0)
+            {
+                fprintf(stderr, "Error: File system in %s is inconsistent (error code: 3)\n", new_disk_name);
+                return;
+            }
+        }
+    }
+
+    // Consistency Check 4
+    for (uint8_t i = 0; i < 126; i++)
+    {
+        Inode *curr_inode = &new_disk_sb.inode[i];
+
+        if (curr_inode->used_size & (1 << 7))
+        {
+            if ((curr_inode->dir_parent & (1 << 7)) == 0)
+            {
+                if ((curr_inode->start_block < 1)
+                    || (curr_inode->start_block > 127))
+                {
+                    fprintf(stderr, "Error: File system in %s is inconsistent (error code: 4)\n", new_disk_name);
+                    return;
+                }
+            }
+        }
+    }
+
+    // Consistency Check 5
+    for (uint8_t i = 0; i < 126; i++)
+    {
+        Inode *curr_inode = &new_disk_sb.inode[i];
+
+        if (curr_inode->used_size & (1 << 7))
+        {
+            if (curr_inode->dir_parent & (1 << 7))
+            {
+                uint8_t size = curr_inode->used_size & 0x7F;
+                if ((curr_inode->start_block != 0) || (size != 0))
+                {
+                    fprintf(stderr, "Error: File system in %s is inconsistent (error code: 5)\n", new_disk_name);
+                    return;
+                }
+            }
+        }
+    }
+
+    // Consistency Check 6
+    for (uint8_t i = 0; i < 126; i++)
+    {
+        Inode *curr_inode = &new_disk_sb.inode[i];
+
+        if (curr_inode->used_size & (1 << 7))
+        {
+            uint8_t parent = curr_inode->dir_parent & 0x7F;
+
+            if ((parent == 126) || (parent > 127))
+            {
+                fprintf(stderr, "Error: File system in %s is inconsistent (error code: 6)\n", new_disk_name);
+                return;
+            }
+
+            if ((parent >= 0) && (parent <= 125))
+            {
+                Inode *parent_inode = &new_disk_sb.inode[parent];
+
+                if (((parent_inode->used_size & (1 << 7)) == 0)
+                    || (((parent_inode->dir_parent & (1 << 7)) == 0)))
+                {
+                    fprintf(stderr, "Error: File system in %s is inconsistent (error code: 6)\n", new_disk_name);
+                    return;
+                }
+            }
+        }
+    }
+
+    // Mount disk
+    disk_sb = new_disk_sb;
+    curr_work_dir = 127;
+
+    directory_map.insert(std::pair < uint8_t, std::vector<uint8_t> > (curr_work_dir, std::vector<uint8_t>()));
+
+    for (uint8_t i = 0; i < 126; i++)
+    {
+        Inode *curr_inode = &disk_sb.inode[i];
+
+        if (curr_inode->used_size & (1 << 7))
+        {
+            files.insert(std::pair< char *, uint8_t > (curr_inode->name, i));
+
+            if ((curr_inode->dir_parent & (1 << 7)) == 0)
+            {
+                
+            }
+        }
+    }
 }
 
 void fs_create(char name[5], int size)
@@ -108,6 +345,7 @@ int main(int argc, char **argv)
     while (fgets(cmd_str, CMD_MAX_SIZE, fp) != NULL)
     {
         size_t cmd_len = strlen(cmd_str);
+
         if (cmd_len > 0)
         {
             if (cmd_str[cmd_len - 1] == '\n')
@@ -191,10 +429,15 @@ int main(int argc, char **argv)
                 {
                     if (cmd_args_num == 2)
                     {
-                        uint8_t *buff = (uint8_t *) cmd_args[1];
+                        size_t buff_len = strlen(cmd_args[1]);
 
-                        fs_buff(buff);
-                        continue;
+                        if (buff_len <= BUFF_SIZE)
+                        {
+                            uint8_t *buff = (uint8_t *) cmd_args[1];
+
+                            fs_buff(buff);
+                            continue;
+                        }
                     }
                 }
                 else if (strcmp(cmd, "L") == 0)
