@@ -86,12 +86,9 @@ void fs_set_free_blocks(uint8_t start_block, uint8_t end_block, uint8_t value)
 
 int fs_check_for_file(char name[5])
 {
-	std::map< uint8_t, std::vector<uint8_t> >::iterator map_it;
-
-	map_it = dir_map.find(curr_dir);
-	if (!map_it->second.empty())
+	if (!dir_map[curr_dir].empty())
 	{
-		for (std::vector<uint8_t>::iterator it = map_it->second.begin(); it != map_it->second.end(); it++)
+		for (std::vector<uint8_t>::iterator it = dir_map[curr_dir].begin(); it != dir_map[curr_dir].end(); it++)
 		{
 			Inode *cmp_inode = &disk_sb.inode[*it];
 
@@ -357,6 +354,12 @@ void fs_mount(char *new_disk_name)
 
 void fs_create(char name[5], int size)
 {
+	if (curr_dir == 0)
+	{
+		fprintf(stderr, "Error: No file system is mounted\n");
+		return;
+	}
+
 	for (uint8_t i = 0; i < 126; i++)
     {
         Inode *curr_inode = &disk_sb.inode[i];
@@ -374,7 +377,7 @@ void fs_create(char name[5], int size)
 
 			for (uint8_t j = 0; j < 16; j++)
 		    {
-				uint8_t fb_byte = (uint8_t) new_disk_sb.free_block_list[j];
+				char fb_byte = disk_sb.free_block_list[j];
 
 				for (uint8_t k = 0; k < 8; k++)
 		        {
@@ -390,7 +393,7 @@ void fs_create(char name[5], int size)
 						if ((block_num + 1 - start_block_num) == size)
 						{
 							strncpy(curr_inode->name, name, 5);
-							curr_inode->size = 0x80 | size;
+							curr_inode->used_size = 0x80 | size;
 							curr_inode->start_block = start_block_num;
 
 							if (size == 0)
@@ -404,8 +407,10 @@ void fs_create(char name[5], int size)
 
 							fs_set_free_blocks(start_block_num, block_num, 1);
 
+							// TODO: Write to inode on disk
+
 							files.insert(std::pair<char *, uint8_t>(curr_inode->name, start_block_num));
-							map_it->second.push_back(i);
+							dir_map[curr_dir].push_back(i);
 
 							return;
 						}
@@ -427,13 +432,31 @@ void fs_create(char name[5], int size)
 	fprintf(stderr, "Error: Superblock in disk %s is full, cannot create %s\n", disk_name, name);
 }
 
-void fs_delete_r(uint8_t inode)
+void fs_delete_r(uint8_t inode_index)
 {
-	
+	Inode *curr_inode = &disk_sb.inode[inode_index];
+
+	if (CHECK_BIT(curr_inode->dir_parent, 7))
+	{
+
+	}
+
+	// TODO: Clear data blocks
+
+	memset(curr_inode->name, 0, 5);
+	curr_inode->used_size = 0;
+	curr_inode->start_block = 0;
+	curr_inode->dir_parent = 0;
 }
 
 void fs_delete(char name[5])
 {
+	if (curr_dir == 0)
+	{
+		fprintf(stderr, "Error: No file system is mounted\n");
+		return;
+	}
+
 	int inode_index = fs_check_for_file(name);
 
 	if (inode_index < 0)
@@ -449,30 +472,65 @@ void fs_delete(char name[5])
 
 void fs_read(char name[5], int block_num)
 {
+	if (curr_dir == 0)
+	{
+		fprintf(stderr, "Error: No file system is mounted\n");
+		return;
+	}
 }
 
 void fs_write(char name[5], int block_num)
 {
+	if (curr_dir == 0)
+	{
+		fprintf(stderr, "Error: No file system is mounted\n");
+		return;
+	}
 }
 
 void fs_buff(uint8_t buff[1024])
 {
+	if (curr_dir == 0)
+	{
+		fprintf(stderr, "Error: No file system is mounted\n");
+		return;
+	}
 }
 
 void fs_ls(void)
 {
+	if (curr_dir == 0)
+	{
+		fprintf(stderr, "Error: No file system is mounted\n");
+		return;
+	}
 }
 
 void fs_resize(char name[5], int new_size)
 {
+	if (curr_dir == 0)
+	{
+		fprintf(stderr, "Error: No file system is mounted\n");
+		return;
+	}
 }
 
 void fs_defrag(void)
 {
+	if (curr_dir == 0)
+	{
+		fprintf(stderr, "Error: No file system is mounted\n");
+		return;
+	}
 }
 
 void fs_cd(char name[5])
 {
+	if (curr_dir == 0)
+	{
+		fprintf(stderr, "Error: No file system is mounted\n");
+		return;
+	}
 }
 
 int main(int argc, char **argv)
@@ -651,3 +709,13 @@ int main(int argc, char **argv)
 
     return 0;
 }
+
+
+// int main(int argc, char **argv)
+// {
+// 	std::map< uint8_t, std::vector<uint8_t> > dir_map;
+// 	dir_map.insert(std::pair< uint8_t, std::vector<uint8_t> >(127, std::vector<uint8_t>()));
+// 	dir_map[127].push_back(8);
+// 	uint8_t value = dir_map[127].back();
+// 	fprintf(stderr, "%u\n", value);
+// }
