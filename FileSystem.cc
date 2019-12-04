@@ -5,7 +5,7 @@
 
 uint8_t data_buffer[BUFF_SIZE];
 Super_block disk_sb;
-std::map< uint8_t, std::vector<uint8_t> > directory_map;
+std::map< uint8_t, std::vector<uint8_t> > dir_map;
 std::map< char *, uint8_t > files;
 uint8_t curr_work_dir = 127;
 
@@ -70,12 +70,15 @@ void fs_mount(char *new_disk_name)
     // Consistency Check 1
     for (uint8_t i = 0; i < 16; i++)
     {
-        std::bitset<8> fb_byte(new_disk_sb.free_block_list[i]);
+        //std::bitset<8> fb_byte(new_disk_sb.free_block_list[i]);
+		uint8_t fb_byte = (uint8_t) new_disk_sb.free_block_list[i];
+
         for (uint8_t j = 0; j < 8; j++)
         {
             if ((i == 0) && (j == 0))
             {
-                if (fb_byte.test(7 - j) == false)
+                //if (fb_byte.test(7 - j) == false)
+				if ((fb_byte & (1 << (7 - i))) == 0)
                 {
                     fprintf(stderr, "Error: File system in %s is inconsistent (error code: 1)\n", new_disk_name);
                     return;
@@ -100,8 +103,8 @@ void fs_mount(char *new_disk_name)
                             if ((block_num >= curr_inode->start_block)
                                 && (block_num <= (curr_inode->start_block + size - 1)))
                             {
-                                if (fb_byte.test(7 - j) == false)
-                                {
+                                //if (fb_byte.test(7 - j) == false)
+								if ((fb_byte & (1 << (7 - i))) == 0)                                {
                                     fprintf(stderr, "Error: File system in %s is inconsistent (error code: 1)\n", new_disk_name);
                                     return;
                                 }
@@ -117,7 +120,8 @@ void fs_mount(char *new_disk_name)
                 }
             }
 
-            if (fb_byte.test(7 - j) && (used == 0))
+            //if (fb_byte.test(7 - j) && (used == 0))
+			if ((fb_byte & (1 << (7 - i))) && (used == 0))
             {
                 fprintf(stderr, "Error: File system in %s is inconsistent (error code: 1)\n", new_disk_name);
                 return;
@@ -266,7 +270,7 @@ void fs_mount(char *new_disk_name)
     disk_sb = new_disk_sb;
     curr_work_dir = 127;
 
-    directory_map.insert(std::pair < uint8_t, std::vector<uint8_t> > (curr_work_dir, std::vector<uint8_t>()));
+    dir_map.insert(std::pair< uint8_t, std::vector<uint8_t> >(curr_work_dir, std::vector<uint8_t>()));
 
     for (uint8_t i = 0; i < 126; i++)
     {
@@ -274,11 +278,22 @@ void fs_mount(char *new_disk_name)
 
         if (curr_inode->used_size & (1 << 7))
         {
-            files.insert(std::pair< char *, uint8_t > (curr_inode->name, i));
+            files.insert(std::pair< char *, uint8_t >(curr_inode->name, i));
 
             if ((curr_inode->dir_parent & (1 << 7)) == 0)
             {
-                
+				uint8_t parent = curr_inode->dir_parent & 0x7F;
+				std::map< uint8_t, std::vector<uint8_t> >::iterator it;
+
+				it = dir_map.find(parent);
+				if (it == dir_map.end())
+				{
+					dir_map.insert(std::pair< uint8_t, std::vector<uint8_t> >(parent, std::vector<uint8_t>(i)));
+				}
+				else
+				{
+					it->second.push_back(i);
+				}
             }
         }
     }
