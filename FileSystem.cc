@@ -3,6 +3,8 @@
 #define CMD_MAX_SIZE            2048
 #define BUFF_SIZE               1024
 
+#define CHECK_BIT(var, pos)		((var) & (1 << (pos)))
+
 Super_block disk_sb;
 char disk_name[50] = "";
 uint8_t curr_work_dir = 0;
@@ -79,7 +81,7 @@ void fs_mount(char *new_disk_name)
         {
             if ((i == 0) && (j == 0))
             {
-				if ((fb_byte & (1 << (7 - j))) == 0)
+				if (CHECK_BIT(fb_byte, 7 - j) == 0)
                 {
                     fprintf(stderr, "Error: File system in %s is inconsistent (error code: 1)\n", new_disk_name);
                     return;
@@ -93,9 +95,9 @@ void fs_mount(char *new_disk_name)
             for (uint8_t k = 0; k < 126; k++)
             {
                 Inode *curr_inode = &new_disk_sb.inode[k];
-                if (curr_inode->used_size & (1 << 7))
+				if (CHECK_BIT(curr_inode->used_size, 7))
                 {
-                    if ((curr_inode->dir_parent & (1 << 7)) == 0)
+					if (CHECK_BIT(curr_inode->dir_parent, 7) == 0)
                     {
                         uint8_t size = curr_inode->used_size & 0x7F;
 
@@ -104,7 +106,8 @@ void fs_mount(char *new_disk_name)
                             if ((block_num >= curr_inode->start_block)
                                 && (block_num <= (curr_inode->start_block + size - 1)))
                             {
-								if ((fb_byte & (1 << (7 - j))) == 0)                                {
+								if (CHECK_BIT(fb_byte, 7 - j) == 0)
+								{
                                     fprintf(stderr, "Error: File system in %s is inconsistent (error code: 1)\n", new_disk_name);
                                     return;
                                 }
@@ -120,7 +123,7 @@ void fs_mount(char *new_disk_name)
                 }
             }
 
-			if ((fb_byte & (1 << (7 - j))) && (used == 0))
+			if (CHECK_BIT(fb_byte, 7 - j) && (used == 0))
             {
                 fprintf(stderr, "Error: File system in %s is inconsistent (error code: 1)\n", new_disk_name);
                 return;
@@ -133,7 +136,7 @@ void fs_mount(char *new_disk_name)
     {
         Inode *curr_inode = &new_disk_sb.inode[i];
 
-        if (curr_inode->used_size & (1 << 7))
+        if (CHECK_BIT(curr_inode->used_size, 7))
         {
 			uint8_t curr_parent = curr_inode->dir_parent & 0x7F;
 
@@ -143,7 +146,7 @@ void fs_mount(char *new_disk_name)
                 {
                     Inode *cmp_inode = &new_disk_sb.inode[j];
 
-                    if (cmp_inode->used_size & (1 << 7))
+                    if (CHECK_BIT(cmp_inode->used_size, 7))
                     {
 						uint8_t cmp_parent = cmp_inode->dir_parent & 0x7F;
 
@@ -166,7 +169,7 @@ void fs_mount(char *new_disk_name)
     {
         Inode *curr_inode = &new_disk_sb.inode[i];
 
-        if ((curr_inode->used_size & (1 << 7)) == 0)
+        if (CHECK_BIT(curr_inode->used_size, 7) == 0)
         {
             for (uint8_t i = 0; i < 5; i++)
             {
@@ -211,9 +214,9 @@ void fs_mount(char *new_disk_name)
     {
         Inode *curr_inode = &new_disk_sb.inode[i];
 
-        if (curr_inode->used_size & (1 << 7))
+        if (CHECK_BIT(curr_inode->used_size, 7))
         {
-            if ((curr_inode->dir_parent & (1 << 7)) == 0)
+			if (CHECK_BIT(curr_inode->dir_parent, 7) == 0)
             {
                 if ((curr_inode->start_block < 1)
                     || (curr_inode->start_block > 127))
@@ -230,9 +233,9 @@ void fs_mount(char *new_disk_name)
     {
         Inode *curr_inode = &new_disk_sb.inode[i];
 
-        if (curr_inode->used_size & (1 << 7))
+        if (CHECK_BIT(curr_inode->used_size, 7))
         {
-            if (curr_inode->dir_parent & (1 << 7))
+            if (CHECK_BIT(curr_inode->dir_parent, 7))
             {
                 uint8_t size = curr_inode->used_size & 0x7F;
                 if ((curr_inode->start_block != 0) || (size != 0))
@@ -249,7 +252,7 @@ void fs_mount(char *new_disk_name)
     {
         Inode *curr_inode = &new_disk_sb.inode[i];
 
-        if (curr_inode->used_size & (1 << 7))
+        if (CHECK_BIT(curr_inode->used_size, 7))
         {
             uint8_t parent = curr_inode->dir_parent & 0x7F;
 
@@ -263,8 +266,8 @@ void fs_mount(char *new_disk_name)
             {
                 Inode *parent_inode = &new_disk_sb.inode[parent];
 
-                if (((parent_inode->used_size & (1 << 7)) == 0)
-                    || (((parent_inode->dir_parent & (1 << 7)) == 0)))
+                if ((CHECK_BIT(parent_inode->used_size, 7) == 0)
+                    || (CHECK_BIT(parent_inode->dir_parent, 7) == 0))
                 {
                     fprintf(stderr, "Error: File system in %s is inconsistent (error code: 6)\n", new_disk_name);
                     return;
@@ -284,11 +287,11 @@ void fs_mount(char *new_disk_name)
     {
         Inode *curr_inode = &disk_sb.inode[i];
 
-        if (curr_inode->used_size & (1 << 7))
+        if (CHECK_BIT(curr_inode->used_size, 7))
         {
             files.insert(std::pair< char *, uint8_t >(curr_inode->name, i));
 
-            if ((curr_inode->dir_parent & (1 << 7)) == 0)
+            if (CHECK_BIT(curr_inode->dir_parent, 7) == 0)
             {
 				uint8_t parent = curr_inode->dir_parent & 0x7F;
 				std::map< uint8_t, std::vector<uint8_t> >::iterator it;
@@ -313,7 +316,7 @@ void fs_create(char name[5], int size)
     {
         Inode *curr_inode = &disk_sb.inode[i];
 
-		if (curr_inode->used_size & (1 << 7) == 0)
+		if (CHECK_BIT(curr_inode->used_size, 7) == 0)
 		{
 
 		}
