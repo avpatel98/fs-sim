@@ -1,18 +1,18 @@
 #include "FileSystem.h"
 
 #define CMD_MAX_SIZE            2048
-#define BUFF_SIZE               1024
 
 #define CHECK_BIT(var, pos)		((var) & (1 << (pos)))
 
+int disk_fd = -1;
 Super_block disk_sb;
 char disk_name[50] = "";
 uint8_t curr_dir = 0;
 
-std::map< uint8_t, std::vector<uint8_t> > dir_map;
+std::map< uint8_t, std::set<uint8_t> > dir_map;
 std::map<char *, uint8_t> files;
 
-uint8_t data_buffer[BUFF_SIZE];
+uint8_t data_buffer[1024];
 
 uint8_t fs_tokenize(char *command_str, char **tokens)
 {
@@ -66,6 +66,38 @@ int fs_validate_block_num(int block_num)
     return -1;
 }
 
+int fs_check_for_file(char name[5])
+{
+	if (!dir_map[curr_dir].empty())
+	{
+		for (std::set<uint8_t>::iterator it = dir_map[curr_dir].begin(); it != dir_map[curr_dir].end(); it++)
+		{
+			Inode *cmp_inode = &disk_sb.inode[*it];
+
+			if (strncmp(name, cmp_inode->name, 5) == 0)
+			{
+				return (int) *it;
+			}
+		}
+	}
+
+	return -1;
+}
+
+int fs_check_for_block(uint8_t inode_index, int block_num)
+{
+	Inode *curr_inode = &disk_sb.inode[inode_index];
+	uint8_t size = curr_inode->used_size & 0x7F;
+
+	if ((block_num >= curr_inode->start_block)
+		&& (block_num <= (curr_inode->start_block + size - 1)))
+	{
+		return 0;
+	}
+
+	return -1;
+}
+
 void fs_set_free_blocks(uint8_t start_block, uint8_t end_block, uint8_t value)
 {
 	for (uint8_t i = start_block; i <= end_block; i++)
@@ -84,27 +116,9 @@ void fs_set_free_blocks(uint8_t start_block, uint8_t end_block, uint8_t value)
 	}
 }
 
-int fs_check_for_file(char name[5])
-{
-	if (!dir_map[curr_dir].empty())
-	{
-		for (std::vector<uint8_t>::iterator it = dir_map[curr_dir].begin(); it != dir_map[curr_dir].end(); it++)
-		{
-			Inode *cmp_inode = &disk_sb.inode[*it];
-
-			if (strncmp(name, cmp_inode->name, 5) == 0)
-			{
-				return (int) *it;
-			}
-		}
-	}
-
-	return -1;
-}
-
 void fs_mount(char *new_disk_name)
 {
-    int fd = open(new_disk_name, O_RDONLY);
+    int fd = open(new_disk_name, O_RDWR);
     if (fd < 0)
     {
         fprintf(stderr, "Error: Cannot find disk %s\n", new_disk_name);
@@ -112,7 +126,7 @@ void fs_mount(char *new_disk_name)
     }
 
     Super_block new_disk_sb;
-    read(fd, &new_disk_sb, BUFF_SIZE);
+    read(fd, &new_disk_sb, 1024);
 
     // Consistency Check 1
     for (uint8_t i = 0; i < 16; i++)
@@ -125,7 +139,8 @@ void fs_mount(char *new_disk_name)
             {
 				if (CHECK_BIT(fb_byte, 7 - j) == 0)
                 {
-                    fprintf(stderr, "Error: File system in %s is inconsistent (error code: 1)\n", new_disk_name);
+					close(fd);
+					fprintf(stderr, "Error: File system in %s is inconsistent (error code: 1)\n", new_disk_name);
                     return;
                 }
                 continue;
@@ -150,12 +165,14 @@ void fs_mount(char *new_disk_name)
                             {
 								if (CHECK_BIT(fb_byte, 7 - j) == 0)
 								{
-                                    fprintf(stderr, "Error: File system in %s is inconsistent (error code: 1)\n", new_disk_name);
+									close(fd);
+									fprintf(stderr, "Error: File system in %s is inconsistent (error code: 1)\n", new_disk_name);
                                     return;
                                 }
                                 if (used)
                                 {
-                                    fprintf(stderr, "Error: File system in %s is inconsistent (error code: 1)\n", new_disk_name);
+									close(fd);
+									fprintf(stderr, "Error: File system in %s is inconsistent (error code: 1)\n", new_disk_name);
                                     return;
                                 }
                                 used = 1;
@@ -167,7 +184,8 @@ void fs_mount(char *new_disk_name)
 
 			if (CHECK_BIT(fb_byte, 7 - j) && (used == 0))
             {
-                fprintf(stderr, "Error: File system in %s is inconsistent (error code: 1)\n", new_disk_name);
+				close(fd);
+				fprintf(stderr, "Error: File system in %s is inconsistent (error code: 1)\n", new_disk_name);
                 return;
             }
         }
@@ -196,7 +214,8 @@ void fs_mount(char *new_disk_name)
 						{
 							if (strncmp(curr_inode->name, cmp_inode->name, 5) == 0)
 	                        {
-	                            fprintf(stderr, "Error: File system in %s is inconsistent (error code: 2)\n", new_disk_name);
+								close(fd);
+								fprintf(stderr, "Error: File system in %s is inconsistent (error code: 2)\n", new_disk_name);
 	                            return;
 	                        }
 						}
@@ -217,7 +236,8 @@ void fs_mount(char *new_disk_name)
             {
                 if (curr_inode->name[i] != '\0')
                 {
-                    fprintf(stderr, "Error: File system in %s is inconsistent (error code: 3)\n", new_disk_name);
+					close(fd);
+					fprintf(stderr, "Error: File system in %s is inconsistent (error code: 3)\n", new_disk_name);
                     return;
                 }
             }
@@ -226,7 +246,8 @@ void fs_mount(char *new_disk_name)
                 || (curr_inode->start_block != 0)
                 || (curr_inode->dir_parent != 0))
             {
-                fprintf(stderr, "Error: File system in %s is inconsistent (error code: 3)\n", new_disk_name);
+				close(fd);
+				fprintf(stderr, "Error: File system in %s is inconsistent (error code: 3)\n", new_disk_name);
                 return;
             }
         }
@@ -245,7 +266,8 @@ void fs_mount(char *new_disk_name)
 
             if (non_zero_present == 0)
             {
-                fprintf(stderr, "Error: File system in %s is inconsistent (error code: 3)\n", new_disk_name);
+				close(fd);
+				fprintf(stderr, "Error: File system in %s is inconsistent (error code: 3)\n", new_disk_name);
                 return;
             }
         }
@@ -263,7 +285,8 @@ void fs_mount(char *new_disk_name)
                 if ((curr_inode->start_block < 1)
                     || (curr_inode->start_block > 127))
                 {
-                    fprintf(stderr, "Error: File system in %s is inconsistent (error code: 4)\n", new_disk_name);
+					close(fd);
+					fprintf(stderr, "Error: File system in %s is inconsistent (error code: 4)\n", new_disk_name);
                     return;
                 }
             }
@@ -282,7 +305,8 @@ void fs_mount(char *new_disk_name)
                 uint8_t size = curr_inode->used_size & 0x7F;
                 if ((curr_inode->start_block != 0) || (size != 0))
                 {
-                    fprintf(stderr, "Error: File system in %s is inconsistent (error code: 5)\n", new_disk_name);
+					close(fd);
+					fprintf(stderr, "Error: File system in %s is inconsistent (error code: 5)\n", new_disk_name);
                     return;
                 }
             }
@@ -300,7 +324,8 @@ void fs_mount(char *new_disk_name)
 
             if ((parent == 126) || (parent > 127))
             {
-                fprintf(stderr, "Error: File system in %s is inconsistent (error code: 6)\n", new_disk_name);
+				close(fd);
+				fprintf(stderr, "Error: File system in %s is inconsistent (error code: 6)\n", new_disk_name);
                 return;
             }
 
@@ -311,7 +336,8 @@ void fs_mount(char *new_disk_name)
                 if ((CHECK_BIT(parent_inode->used_size, 7) == 0)
                     || (CHECK_BIT(parent_inode->dir_parent, 7) == 0))
                 {
-                    fprintf(stderr, "Error: File system in %s is inconsistent (error code: 6)\n", new_disk_name);
+					close(fd);
+					fprintf(stderr, "Error: File system in %s is inconsistent (error code: 6)\n", new_disk_name);
                     return;
                 }
             }
@@ -319,11 +345,17 @@ void fs_mount(char *new_disk_name)
     }
 
     // Mount disk
+	if (disk_fd >= 0)
+	{
+		close(disk_fd);
+	}
+
+	disk_fd = fd;
     disk_sb = new_disk_sb;
 	strcpy(disk_name, new_disk_name);
     curr_dir = 127;
 
-    dir_map.insert(std::pair< uint8_t, std::vector<uint8_t> >(curr_dir, std::vector<uint8_t>()));
+    dir_map.insert(std::pair< uint8_t, std::set<uint8_t> >(curr_dir, std::set<uint8_t>()));
 
     for (uint8_t i = 0; i < 126; i++)
     {
@@ -336,16 +368,16 @@ void fs_mount(char *new_disk_name)
             if (CHECK_BIT(curr_inode->dir_parent, 7) == 0)
             {
 				uint8_t parent = curr_inode->dir_parent & 0x7F;
-				std::map< uint8_t, std::vector<uint8_t> >::iterator it;
+				std::map< uint8_t, std::set<uint8_t> >::iterator it;
 
 				it = dir_map.find(parent);
 				if (it == dir_map.end())
 				{
-					dir_map.insert(std::pair< uint8_t, std::vector<uint8_t> >(parent, std::vector<uint8_t>(i)));
+					dir_map.insert(std::pair< uint8_t, std::set<uint8_t> >(parent, std::set<uint8_t>(i)));
 				}
 				else
 				{
-					it->second.push_back(i);
+					it->second.insert(i);
 				}
             }
         }
@@ -354,7 +386,7 @@ void fs_mount(char *new_disk_name)
 
 void fs_create(char name[5], int size)
 {
-	if (curr_dir == 0)
+	if (disk_fd < 0)
 	{
 		fprintf(stderr, "Error: No file system is mounted\n");
 		return;
@@ -373,57 +405,77 @@ void fs_create(char name[5], int size)
 				return;
 			}
 
-			uint8_t start_block_num = 128;
+			uint8_t start_block_num = 0;
 
-			for (uint8_t j = 0; j < 16; j++)
-		    {
-				char fb_byte = disk_sb.free_block_list[j];
+			if (size > 0)
+			{
+				uint8_t found_space = 0;
 
-				for (uint8_t k = 0; k < 8; k++)
-		        {
-					uint8_t block_num = (j * 8) + k;
-
-					if (CHECK_BIT(fb_byte, 7 - k) == 0)
+				if (size <= 127)
+				{
+					for (uint8_t j = 0; j < 16; j++)
 					{
-						if (start_block_num != 128)
-						{
-							start_block_num = block_num;
-						}
+						char fb_byte = disk_sb.free_block_list[j];
 
-						if ((block_num + 1 - start_block_num) == size)
+						for (uint8_t k = 0; k < 8; k++)
 						{
-							strncpy(curr_inode->name, name, 5);
-							curr_inode->used_size = 0x80 | size;
-							curr_inode->start_block = start_block_num;
+							uint8_t block_num = (j * 8) + k;
 
-							if (size == 0)
+							if (CHECK_BIT(fb_byte, 7 - k) == 0)
 							{
-								curr_inode->dir_parent = 0x80 | curr_dir;
+								if (start_block_num == 0)
+								{
+									start_block_num = block_num;
+								}
+
+								if ((start_block_num + size - 1) == block_num)
+								{
+									fs_set_free_blocks(start_block_num, block_num, 1);
+									found_space = 1;
+									break;
+								}
 							}
 							else
 							{
-								curr_inode->dir_parent = curr_dir;
+								start_block_num = 0;
 							}
+						}
 
-							fs_set_free_blocks(start_block_num, block_num, 1);
-
-							// TODO: Write to inode on disk
-
-							files.insert(std::pair<char *, uint8_t>(curr_inode->name, start_block_num));
-							dir_map[curr_dir].push_back(i);
-
-							return;
+						if (found_space)
+						{
+							break;
 						}
 					}
-					else
-					{
-						start_block_num = 128;
-					}
 				}
+
+				if (found_space == 0)
+				{
+					// TODO: Test this line with name of length 5
+					fprintf(stderr, "Error: Cannot allocate %s on %s\n", name, disk_name);
+					return;
+				}
+
+				curr_inode->dir_parent = curr_dir;
+			}
+			else
+			{
+				dir_map.insert(std::pair< uint8_t, std::set<uint8_t> >(i, std::set<uint8_t>()));
+				curr_inode->dir_parent = 0x80 | curr_dir;
 			}
 
-			// TODO: Test this line with name of length 5
-			fprintf(stderr, "Error: Cannot allocate %s on %s\n", name, disk_name);
+			strncpy(curr_inode->name, name, 5);
+			curr_inode->used_size = 0x80 | size;
+			curr_inode->start_block = start_block_num;
+
+			lseek(disk_fd, 0, SEEK_SET);
+			write(disk_fd, disk_sb.free_block_list, 16);
+
+			lseek(disk_fd, i * 8, SEEK_CUR);
+			write(disk_fd, curr_inode, 8);
+
+			files.insert(std::pair<char *, uint8_t>(curr_inode->name, start_block_num));
+			dir_map[curr_dir].insert(i);
+
 			return;
 		}
 	}
@@ -438,20 +490,46 @@ void fs_delete_r(uint8_t inode_index)
 
 	if (CHECK_BIT(curr_inode->dir_parent, 7))
 	{
-
+		if (!dir_map[inode_index].empty())
+		{
+			for (std::set<uint8_t>::iterator it = dir_map[inode_index].begin(); it != dir_map[inode_index].end(); it++)
+			{
+				fs_delete_r(*it);
+			}
+		}
+		dir_map.erase(inode_index);
 	}
+	else
+	{
+		size_t size = curr_inode->used_size & 0x7F;
+		uint8_t empty_buff[1024] = {0};
 
-	// TODO: Clear data blocks
+		lseek(disk_fd, curr_inode->start_block * 1024, SEEK_SET);
+		for (uint8_t i = 0; i < size; i++)
+		{
+			write(disk_fd, empty_buff, 1024);
+		}
+
+		fs_set_free_blocks(curr_inode->start_block, curr_inode->start_block + size - 1, 0);
+
+		lseek(disk_fd, 0, SEEK_SET);
+		write(disk_fd, disk_sb.free_block_list, 16);
+	}
 
 	memset(curr_inode->name, 0, 5);
 	curr_inode->used_size = 0;
 	curr_inode->start_block = 0;
 	curr_inode->dir_parent = 0;
+
+	lseek(disk_fd, (inode_index + 2) * 8, SEEK_SET);
+	write(disk_fd, curr_inode, 8);
+
+	files.erase(curr_inode->name);
 }
 
 void fs_delete(char name[5])
 {
-	if (curr_dir == 0)
+	if (disk_fd < 0)
 	{
 		fprintf(stderr, "Error: No file system is mounted\n");
 		return;
@@ -463,52 +541,88 @@ void fs_delete(char name[5])
 	{
 		// TODO: Test this line with name of length 5
 		fprintf(stderr, "Error: File or directory %s does not exist\n", name);
+		return;
 	}
-	else
-	{
-		fs_delete_r((uint8_t) inode_index);
-	}
+
+	fs_delete_r((uint8_t) inode_index);
 }
 
 void fs_read(char name[5], int block_num)
 {
-	if (curr_dir == 0)
+	if (disk_fd < 0)
 	{
 		fprintf(stderr, "Error: No file system is mounted\n");
 		return;
 	}
+
+	int inode_index = fs_check_for_file(name);
+
+	if (inode_index < 0)
+	{
+		// TODO: Test this line with name of length 5
+		fprintf(stderr, "Error: File %s does not exist\n", name);
+		return;
+	}
+
+	if (fs_check_for_block(inode_index, block_num) < 0)
+	{
+		// TODO: Test this line with name of length 5
+		fprintf(stderr, "Error: %s does not have block %d\n", name, block_num);
+		return;
+	}
+
+	lseek(disk_fd, block_num * 1024, SEEK_SET);
+	read(disk_fd, data_buffer, 1024);
 }
 
 void fs_write(char name[5], int block_num)
 {
-	if (curr_dir == 0)
+	if (disk_fd < 0)
 	{
 		fprintf(stderr, "Error: No file system is mounted\n");
 		return;
 	}
+
+	int inode_index = fs_check_for_file(name);
+
+	if (inode_index < 0)
+	{
+		// TODO: Test this line with name of length 5
+		fprintf(stderr, "Error: File %s does not exist\n", name);
+		return;
+	}
+
+	if (fs_check_for_block(inode_index, block_num) < 0)
+	{
+		// TODO: Test this line with name of length 5
+		fprintf(stderr, "Error: %s does not have block %d\n", name, block_num);
+		return;
+	}
+
+	lseek(disk_fd, block_num * 1024, SEEK_SET);
+	write(disk_fd, data_buffer, 1024);
 }
 
 void fs_buff(uint8_t buff[1024])
 {
-	if (curr_dir == 0)
-	{
-		fprintf(stderr, "Error: No file system is mounted\n");
-		return;
-	}
+	memset(data_buffer, 0, 1024);
+	memcpy(data_buffer, buff, strlen((char *) buff));
 }
 
 void fs_ls(void)
 {
-	if (curr_dir == 0)
+	if (disk_fd < 0)
 	{
 		fprintf(stderr, "Error: No file system is mounted\n");
 		return;
 	}
+
+	
 }
 
 void fs_resize(char name[5], int new_size)
 {
-	if (curr_dir == 0)
+	if (disk_fd < 0)
 	{
 		fprintf(stderr, "Error: No file system is mounted\n");
 		return;
@@ -517,7 +631,7 @@ void fs_resize(char name[5], int new_size)
 
 void fs_defrag(void)
 {
-	if (curr_dir == 0)
+	if (disk_fd < 0)
 	{
 		fprintf(stderr, "Error: No file system is mounted\n");
 		return;
@@ -526,7 +640,7 @@ void fs_defrag(void)
 
 void fs_cd(char name[5])
 {
-	if (curr_dir == 0)
+	if (disk_fd < 0)
 	{
 		fprintf(stderr, "Error: No file system is mounted\n");
 		return;
@@ -646,7 +760,7 @@ int main(int argc, char **argv)
                     {
                         size_t buff_len = strlen(cmd_args[1]);
 
-                        if (buff_len <= BUFF_SIZE)
+                        if (buff_len <= 1024)
                         {
                             uint8_t *buff = (uint8_t *) cmd_args[1];
 
@@ -705,6 +819,10 @@ int main(int argc, char **argv)
         line_num++;
     }
 
+	if (disk_fd >= 0)
+	{
+		close(disk_fd);
+	}
     fclose(fp);
 
     return 0;
@@ -713,9 +831,9 @@ int main(int argc, char **argv)
 
 // int main(int argc, char **argv)
 // {
-// 	std::map< uint8_t, std::vector<uint8_t> > dir_map;
-// 	dir_map.insert(std::pair< uint8_t, std::vector<uint8_t> >(127, std::vector<uint8_t>()));
-// 	dir_map[127].push_back(8);
+// 	std::map< uint8_t, std::set<uint8_t> > dir_map;
+// 	dir_map.insert(std::pair< uint8_t, std::set<uint8_t> >(127, std::set<uint8_t>()));
+// 	dir_map[127].insert(8);
 // 	uint8_t value = dir_map[127].back();
 // 	fprintf(stderr, "%u\n", value);
 // }
