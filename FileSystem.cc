@@ -3,11 +3,14 @@
 #define CMD_MAX_SIZE            2048
 #define BUFF_SIZE               1024
 
-uint8_t data_buffer[BUFF_SIZE];
 Super_block disk_sb;
+char[50] disk_name = "";
+uint8_t curr_work_dir = 0;
+
 std::map< uint8_t, std::vector<uint8_t> > dir_map;
 std::map< char *, uint8_t > files;
-uint8_t curr_work_dir = 127;
+
+uint8_t data_buffer[BUFF_SIZE];
 
 uint8_t fs_tokenize(char *command_str, char **tokens)
 {
@@ -70,14 +73,12 @@ void fs_mount(char *new_disk_name)
     // Consistency Check 1
     for (uint8_t i = 0; i < 16; i++)
     {
-        //std::bitset<8> fb_byte(new_disk_sb.free_block_list[i]);
 		uint8_t fb_byte = (uint8_t) new_disk_sb.free_block_list[i];
 
         for (uint8_t j = 0; j < 8; j++)
         {
             if ((i == 0) && (j == 0))
             {
-                //if (fb_byte.test(7 - j) == false)
 				if ((fb_byte & (1 << (7 - j))) == 0)
                 {
                     fprintf(stderr, "Error: File system in %s is inconsistent (error code: 1)\n", new_disk_name);
@@ -103,7 +104,6 @@ void fs_mount(char *new_disk_name)
                             if ((block_num >= curr_inode->start_block)
                                 && (block_num <= (curr_inode->start_block + size - 1)))
                             {
-                                //if (fb_byte.test(7 - j) == false)
 								if ((fb_byte & (1 << (7 - j))) == 0)                                {
                                     fprintf(stderr, "Error: File system in %s is inconsistent (error code: 1)\n", new_disk_name);
                                     return;
@@ -120,7 +120,6 @@ void fs_mount(char *new_disk_name)
                 }
             }
 
-            //if (fb_byte.test(7 - j) && (used == 0))
 			if ((fb_byte & (1 << (7 - j))) && (used == 0))
             {
                 fprintf(stderr, "Error: File system in %s is inconsistent (error code: 1)\n", new_disk_name);
@@ -136,18 +135,26 @@ void fs_mount(char *new_disk_name)
 
         if (curr_inode->used_size & (1 << 7))
         {
-            for (uint8_t j = 0; j < 126; j++)
+			uint8_t curr_parent = curr_inode->dir_parent & 0x7F;
+
+			for (uint8_t j = 0; j < 126; j++)
             {
                 if (i != j)
                 {
                     Inode *cmp_inode = &new_disk_sb.inode[j];
+					
                     if (cmp_inode->used_size & (1 << 7))
                     {
-                        if (strncmp(curr_inode->name, cmp_inode->name, 5) == 0)
-                        {
-                            fprintf(stderr, "Error: File system in %s is inconsistent (error code: 2)\n", new_disk_name);
-                            return;
-                        }
+						uint8_t cmp_parent = cmp_inode->dir_parent & 0x7F;
+
+						if (curr_parent == cmp_parent)
+						{
+							if (strncmp(curr_inode->name, cmp_inode->name, 5) == 0)
+	                        {
+	                            fprintf(stderr, "Error: File system in %s is inconsistent (error code: 2)\n", new_disk_name);
+	                            return;
+	                        }
+						}
                     }
                 }
             }
@@ -268,6 +275,7 @@ void fs_mount(char *new_disk_name)
 
     // Mount disk
     disk_sb = new_disk_sb;
+	strcpy(disk_name, new_disk_name);
     curr_work_dir = 127;
 
     dir_map.insert(std::pair< uint8_t, std::vector<uint8_t> >(curr_work_dir, std::vector<uint8_t>()));
@@ -301,6 +309,18 @@ void fs_mount(char *new_disk_name)
 
 void fs_create(char name[5], int size)
 {
+	for (uint8_t i = 0; i < 126; i++)
+    {
+        Inode *curr_inode = &disk_sb.inode[i];
+
+		if (curr_inode->used_size & (1 << 7) == 0)
+		{
+
+		}
+	}
+
+	// Test this line with name of length 5
+	fprintf(stderr, "Superblock in disk %s is full, cannot create %s\n", disk_name, name);
 }
 
 void fs_delete(char name[5])

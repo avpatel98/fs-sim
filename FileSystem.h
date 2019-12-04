@@ -8,7 +8,6 @@
 #include <stdlib.h>
 #include <vector>
 #include <map>
-//#include <bitset>
 
 typedef struct
 {
