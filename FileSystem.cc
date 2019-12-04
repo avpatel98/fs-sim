@@ -78,7 +78,7 @@ void fs_mount(char *new_disk_name)
             if ((i == 0) && (j == 0))
             {
                 //if (fb_byte.test(7 - j) == false)
-				if ((fb_byte & (1 << (7 - i))) == 0)
+				if ((fb_byte & (1 << (7 - j))) == 0)
                 {
                     fprintf(stderr, "Error: File system in %s is inconsistent (error code: 1)\n", new_disk_name);
                     return;
@@ -104,7 +104,7 @@ void fs_mount(char *new_disk_name)
                                 && (block_num <= (curr_inode->start_block + size - 1)))
                             {
                                 //if (fb_byte.test(7 - j) == false)
-								if ((fb_byte & (1 << (7 - i))) == 0)                                {
+								if ((fb_byte & (1 << (7 - j))) == 0)                                {
                                     fprintf(stderr, "Error: File system in %s is inconsistent (error code: 1)\n", new_disk_name);
                                     return;
                                 }
@@ -121,7 +121,7 @@ void fs_mount(char *new_disk_name)
             }
 
             //if (fb_byte.test(7 - j) && (used == 0))
-			if ((fb_byte & (1 << (7 - i))) && (used == 0))
+			if ((fb_byte & (1 << (7 - j))) && (used == 0))
             {
                 fprintf(stderr, "Error: File system in %s is inconsistent (error code: 1)\n", new_disk_name);
                 return;
