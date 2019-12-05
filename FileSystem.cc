@@ -10,7 +10,6 @@
 #include <vector>
 #include <queue>
 
-
 // Max command size
 #define CMD_MAX_SIZE            2048
 
@@ -500,7 +499,7 @@ void fs_create(char name[5], int size)
 		}
 	}
 
-	// No avaliable inode
+	// No available inode
 	fprintf(stderr, "Error: Superblock in disk %s is full, cannot create %s\n", disk_name, name);
 }
 
@@ -856,9 +855,6 @@ void fs_resize(char name[5], int new_size)
 					write(disk_fd, empty_buff, 1024);
 				}
 
-				// TODO
-				// fs_set_free_blocks(inode->start_block, inode->start_block + size - 1, 0);
-
 				// Update inode
 				inode->used_size = 0x80 | new_size;
 				inode->start_block = start_block_num;
@@ -875,7 +871,7 @@ void fs_resize(char name[5], int new_size)
 
 		// Restore free block list and reject new size
 		memcpy(disk_sb.free_block_list, saved_free_block_list, 16);
-		fprintf(stderr, "File %s cannot expand to size %d\n", name, new_size);
+		fprintf(stderr, "Error: File %s cannot expand to size %d\n", name, new_size);
 	}
 	else if (new_size < size)
 	{
@@ -1054,7 +1050,6 @@ int main(int argc, char **argv)
 
     // Read one line from input file at a time
     while (fgets(cmd_str, CMD_MAX_SIZE, fp) != NULL)
-	// TODO
 	// while (fgets(cmd_str, CMD_MAX_SIZE, stdin) != NULL)
     {
         size_t cmd_len = strlen(cmd_str);
