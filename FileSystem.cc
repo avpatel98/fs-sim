@@ -1048,14 +1048,12 @@ int main(int argc, char **argv)
     int line_num = 1;
 
     // Read one line from input file at a time
-    //while (fgets(cmd_str, CMD_MAX_SIZE, fp) != NULL)
-	while (fgets(cmd_str, CMD_MAX_SIZE, stdin) != NULL)
+    while (fgets(cmd_str, CMD_MAX_SIZE, fp) != NULL)
     {
 		// Strip newline character or continue if empty command
 		size_t cmd_len = strlen(cmd_str);
 		if (cmd_len > 0)
 		{
-
 			if (cmd_str[cmd_len - 1] == '\n')
 			{
 				if (cmd_len == 1)
