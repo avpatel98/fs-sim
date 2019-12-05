@@ -515,13 +515,12 @@ void fs_delete_r(uint8_t inode_index)
 	if (CHECK_BIT(inode->dir_parent, 7))
 	{
 		// Recusively delete directories and files within directory
-		if (!dir_map[inode_index].empty())
+		while(!dir_map[inode_index].empty())
 		{
-			for (std::set<uint8_t>::iterator it = dir_map[inode_index].begin(); it != dir_map[inode_index].end(); it++)
-			{
-				fs_delete_r(*it);
-			}
+			std::set<uint8_t>::iterator it = dir_map[inode_index].begin();
+			fs_delete_r(*it);
 		}
+		dir_map.erase(inode_index);
 	}
 	else
 	{
