@@ -8,6 +8,8 @@
 #include <stdlib.h>
 #include <set>
 #include <map>
+#include <vector>
+#include <queue>
 
 typedef struct
 {
