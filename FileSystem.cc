@@ -16,9 +16,9 @@
 // Check bit macro
 #define CHECK_BIT(var, pos)		((var) & (1 << (pos)))
 
-// Disk parameters
-int disk_fd = -1;
-Super_block disk_sb;
+// File system parameters
+int fs_fd = -1;
+Super_block fs_sb;
 char disk_name[50] = "";
 
 uint8_t curr_dir = 0;
@@ -31,7 +31,7 @@ struct custom_compare
 {
 	bool operator()(const uint8_t a, const uint8_t b)
 	{
-		return disk_sb.inode[a].start_block > disk_sb.inode[b].start_block;
+		return fs_sb.inode[a].start_block > fs_sb.inode[b].start_block;
 	}
 };
 
@@ -83,7 +83,7 @@ int fs_search_curr_dir(char name[5])
 	{
 		for (std::set<uint8_t>::iterator it = dir_map[curr_dir].begin(); it != dir_map[curr_dir].end(); it++)
 		{
-			Inode *inode = &disk_sb.inode[*it];
+			Inode *inode = &fs_sb.inode[*it];
 			if (strncmp(name, inode->name, 5) == 0)
 			{
 				return (int) *it;
@@ -110,19 +110,19 @@ void fs_set_free_blocks(uint8_t start_block, uint8_t end_block, uint8_t value)
 
 		if (value == 0)
 		{
-			disk_sb.free_block_list[list_index] &= ~(1 << bit_index);
+			fs_sb.free_block_list[list_index] &= ~(1 << bit_index);
 		}
 		else
 		{
-			disk_sb.free_block_list[list_index] |= (1 << bit_index);
+			fs_sb.free_block_list[list_index] |= (1 << bit_index);
 		}
 	}
 }
 
 
 /**
-* @brief 	Perform consistency checks on disk and mount if valid
-* @param 	new_disk_name - name of disk to mount
+* @brief 	Perform consistency checks on file system and mount if valid
+* @param 	new_disk_name - name of disk that contains file system to mount
 */
 void fs_mount(char *new_disk_name)
 {
@@ -134,14 +134,14 @@ void fs_mount(char *new_disk_name)
         return;
     }
 
-	// Get superblock of disk
-	Super_block new_disk_sb;
-    read(fd, &new_disk_sb, 1024);
+	// Get superblock from disk
+	Super_block new_fs_sb;
+    read(fd, &new_fs_sb, 1024);
 
     // Consistency Check 1
     for (uint8_t i = 0; i < 16; i++)
     {
-		char fb_byte = new_disk_sb.free_block_list[i];
+		char fb_byte = new_fs_sb.free_block_list[i];
         for (uint8_t j = 0; j < 8; j++)
         {
             if ((i == 0) && (j == 0))
@@ -161,7 +161,7 @@ void fs_mount(char *new_disk_name)
 
             for (uint8_t k = 0; k < 126; k++)
             {
-                Inode *inode = &new_disk_sb.inode[k];
+                Inode *inode = &new_fs_sb.inode[k];
 				if (CHECK_BIT(inode->used_size, 7))
                 {
 					if (CHECK_BIT(inode->dir_parent, 7) == 0)
@@ -205,7 +205,7 @@ void fs_mount(char *new_disk_name)
     // Consistency Check 2
     for (uint8_t i = 0; i < 126; i++)
     {
-        Inode *inode = &new_disk_sb.inode[i];
+        Inode *inode = &new_fs_sb.inode[i];
         if (CHECK_BIT(inode->used_size, 7))
         {
 			uint8_t parent = inode->dir_parent & 0x7F;
@@ -213,7 +213,7 @@ void fs_mount(char *new_disk_name)
             {
                 if (i != j)
                 {
-                    Inode *cmp_inode = &new_disk_sb.inode[j];
+                    Inode *cmp_inode = &new_fs_sb.inode[j];
                     if (CHECK_BIT(cmp_inode->used_size, 7))
                     {
 						uint8_t cmp_parent = cmp_inode->dir_parent & 0x7F;
@@ -236,7 +236,7 @@ void fs_mount(char *new_disk_name)
     // Consistency Check 3
     for (uint8_t i = 0; i < 126; i++)
     {
-        Inode *inode = &new_disk_sb.inode[i];
+        Inode *inode = &new_fs_sb.inode[i];
         if (CHECK_BIT(inode->used_size, 7) == 0)
         {
             for (uint8_t i = 0; i < 5; i++)
@@ -284,7 +284,7 @@ void fs_mount(char *new_disk_name)
     // Consistency Check 4
     for (uint8_t i = 0; i < 126; i++)
     {
-        Inode *inode = &new_disk_sb.inode[i];
+        Inode *inode = &new_fs_sb.inode[i];
         if (CHECK_BIT(inode->used_size, 7))
         {
 			if (CHECK_BIT(inode->dir_parent, 7) == 0)
@@ -303,7 +303,7 @@ void fs_mount(char *new_disk_name)
     // Consistency Check 5
     for (uint8_t i = 0; i < 126; i++)
     {
-        Inode *inode = &new_disk_sb.inode[i];
+        Inode *inode = &new_fs_sb.inode[i];
         if (CHECK_BIT(inode->used_size, 7))
         {
             if (CHECK_BIT(inode->dir_parent, 7))
@@ -323,7 +323,7 @@ void fs_mount(char *new_disk_name)
     // Consistency Check 6
     for (uint8_t i = 0; i < 126; i++)
     {
-        Inode *inode = &new_disk_sb.inode[i];
+        Inode *inode = &new_fs_sb.inode[i];
         if (CHECK_BIT(inode->used_size, 7))
         {
             uint8_t parent = inode->dir_parent & 0x7F;
@@ -338,7 +338,7 @@ void fs_mount(char *new_disk_name)
 
             if ((parent >= 0) && (parent <= 125))
             {
-                Inode *parent_inode = &new_disk_sb.inode[parent];
+                Inode *parent_inode = &new_fs_sb.inode[parent];
                 if ((CHECK_BIT(parent_inode->used_size, 7) == 0) || (CHECK_BIT(parent_inode->dir_parent, 7) == 0))
                 {
 					// Invalid parent inode
@@ -350,26 +350,26 @@ void fs_mount(char *new_disk_name)
         }
     }
 
-	if (disk_fd >= 0)
+	if (fs_fd >= 0)
 	{
-		// Unmount old disk
-		close(disk_fd);
+		// Unmount old file system
+		close(fs_fd);
 		dir_map.clear();
 	}
 
-	// Mount new disk
-	disk_fd = fd;
-    disk_sb = new_disk_sb;
+	// Mount new file system
+	fs_fd = fd;
+    fs_sb = new_fs_sb;
 	strcpy(disk_name, new_disk_name);
 
 	// Set current directory to root directory
     curr_dir = 127;
 
-	// Generate directory map for new disk
+	// Generate directory map for new file_system
     dir_map.insert(std::pair< uint8_t, std::set<uint8_t> >(curr_dir, std::set<uint8_t>()));
     for (uint8_t i = 0; i < 126; i++)
     {
-        Inode *inode = &disk_sb.inode[i];
+        Inode *inode = &fs_sb.inode[i];
         if (CHECK_BIT(inode->used_size, 7))
         {
 			uint8_t parent = inode->dir_parent & 0x7F;
@@ -399,16 +399,16 @@ void fs_mount(char *new_disk_name)
 */
 void fs_create(char name[5], int size)
 {
-	if (disk_fd < 0)
+	if (fs_fd < 0)
 	{
-		// No disk mounted
+		// No file system mounted
 		fprintf(stderr, "Error: No file system is mounted\n");
 		return;
 	}
 
 	for (uint8_t i = 0; i < 126; i++)
     {
-        Inode *inode = &disk_sb.inode[i];
+        Inode *inode = &fs_sb.inode[i];
 		if (CHECK_BIT(inode->used_size, 7) == 0)
 		{
 			if ((strcmp(name, ".") == 0) || (strcmp(name, "..") == 0))
@@ -433,7 +433,7 @@ void fs_create(char name[5], int size)
 
 				for (uint8_t j = 0; j < 16; j++)
 				{
-					char fb_byte = disk_sb.free_block_list[j];
+					char fb_byte = fs_sb.free_block_list[j];
 
 					for (uint8_t k = 0; k < 8; k++)
 					{
@@ -488,10 +488,10 @@ void fs_create(char name[5], int size)
 			inode->start_block = start_block_num;
 
 			// Update superblock on disk
-			lseek(disk_fd, 0, SEEK_SET);
-			write(disk_fd, disk_sb.free_block_list, 16);
-			lseek(disk_fd, i * 8, SEEK_CUR);
-			write(disk_fd, inode, 8);
+			lseek(fs_fd, 0, SEEK_SET);
+			write(fs_fd, fs_sb.free_block_list, 16);
+			lseek(fs_fd, i * 8, SEEK_CUR);
+			write(fs_fd, inode, 8);
 
 			dir_map[curr_dir].insert(i);
 
@@ -510,7 +510,7 @@ void fs_create(char name[5], int size)
 */
 void fs_delete_r(uint8_t inode_index)
 {
-	Inode *inode = &disk_sb.inode[inode_index];
+	Inode *inode = &fs_sb.inode[inode_index];
 
 	if (CHECK_BIT(inode->dir_parent, 7))
 	{
@@ -527,16 +527,16 @@ void fs_delete_r(uint8_t inode_index)
 		// Delete file data
 		size_t size = inode->used_size & 0x7F;
 		uint8_t empty_buff[1024] = {0};
-		lseek(disk_fd, inode->start_block * 1024, SEEK_SET);
+		lseek(fs_fd, inode->start_block * 1024, SEEK_SET);
 		for (uint8_t i = 0; i < size; i++)
 		{
-			write(disk_fd, empty_buff, 1024);
+			write(fs_fd, empty_buff, 1024);
 		}
 
 		// Update free block list on disk
 		fs_set_free_blocks(inode->start_block, inode->start_block + size - 1, 0);
-		lseek(disk_fd, 0, SEEK_SET);
-		write(disk_fd, disk_sb.free_block_list, 16);
+		lseek(fs_fd, 0, SEEK_SET);
+		write(fs_fd, fs_sb.free_block_list, 16);
 	}
 
 	// Delete from parent directory
@@ -550,8 +550,8 @@ void fs_delete_r(uint8_t inode_index)
 	inode->dir_parent = 0;
 
 	// Update inode on disk
-	lseek(disk_fd, (inode_index + 2) * 8, SEEK_SET);
-	write(disk_fd, inode, 8);
+	lseek(fs_fd, (inode_index + 2) * 8, SEEK_SET);
+	write(fs_fd, inode, 8);
 }
 
 
@@ -561,9 +561,9 @@ void fs_delete_r(uint8_t inode_index)
 */
 void fs_delete(char name[5])
 {
-	if (disk_fd < 0)
+	if (fs_fd < 0)
 	{
-		// No disk mounted
+		// No file system mounted
 		fprintf(stderr, "Error: No file system is mounted\n");
 		return;
 	}
@@ -588,9 +588,9 @@ void fs_delete(char name[5])
 */
 void fs_read(char name[5], int block_num)
 {
-	if (disk_fd < 0)
+	if (fs_fd < 0)
 	{
-		// No disk mounted
+		// No file system mounted
 		fprintf(stderr, "Error: No file system is mounted\n");
 		return;
 	}
@@ -603,7 +603,7 @@ void fs_read(char name[5], int block_num)
 		return;
 	}
 
-	Inode *inode = &disk_sb.inode[inode_index];
+	Inode *inode = &fs_sb.inode[inode_index];
 	if (CHECK_BIT(inode->dir_parent, 7))
 	{
 		// Given name belongs to directory
@@ -619,8 +619,8 @@ void fs_read(char name[5], int block_num)
 	}
 
 	// Read block into buffer
-	lseek(disk_fd, (inode->start_block + block_num) * 1024, SEEK_SET);
-	read(disk_fd, data_buffer, 1024);
+	lseek(fs_fd, (inode->start_block + block_num) * 1024, SEEK_SET);
+	read(fs_fd, data_buffer, 1024);
 }
 
 
@@ -631,9 +631,9 @@ void fs_read(char name[5], int block_num)
 */
 void fs_write(char name[5], int block_num)
 {
-	if (disk_fd < 0)
+	if (fs_fd < 0)
 	{
-		// No disk mounted
+		// No file system mounted
 		fprintf(stderr, "Error: No file system is mounted\n");
 		return;
 	}
@@ -646,7 +646,7 @@ void fs_write(char name[5], int block_num)
 		return;
 	}
 
-	Inode *inode = &disk_sb.inode[inode_index];
+	Inode *inode = &fs_sb.inode[inode_index];
 	if (CHECK_BIT(inode->dir_parent, 7))
 	{
 		// Given name belongs to directory
@@ -662,8 +662,8 @@ void fs_write(char name[5], int block_num)
 	}
 
 	// Write buffer to block
-	lseek(disk_fd, (inode->start_block + block_num) * 1024, SEEK_SET);
-	write(disk_fd, data_buffer, 1024);
+	lseek(fs_fd, (inode->start_block + block_num) * 1024, SEEK_SET);
+	write(fs_fd, data_buffer, 1024);
 }
 
 
@@ -673,9 +673,9 @@ void fs_write(char name[5], int block_num)
 */
 void fs_buff(uint8_t buff[1024])
 {
-	if (disk_fd < 0)
+	if (fs_fd < 0)
 	{
-		// No disk mounted
+		// No file system mounted
 		fprintf(stderr, "Error: No file system is mounted\n");
 		return;
 	}
@@ -691,9 +691,9 @@ void fs_buff(uint8_t buff[1024])
 */
 void fs_ls(void)
 {
-	if (disk_fd < 0)
+	if (fs_fd < 0)
 	{
-		// No disk mounted
+		// No file system mounted
 		fprintf(stderr, "Error: No file system is mounted\n");
 		return;
 	}
@@ -705,7 +705,7 @@ void fs_ls(void)
 	// Number of children in parent directory
 	if (curr_dir != 127)
 	{
-		Inode *inode = &disk_sb.inode[curr_dir];
+		Inode *inode = &fs_sb.inode[curr_dir];
 		uint8_t parent = inode->dir_parent & 0x7F;
 		num_of_children = dir_map[parent].size() + 2;
 	}
@@ -716,7 +716,7 @@ void fs_ls(void)
 		char name[6];
 		for (std::set<uint8_t>::iterator it = dir_map[curr_dir].begin(); it != dir_map[curr_dir].end(); it++)
 		{
-			Inode *inode = &disk_sb.inode[*it];
+			Inode *inode = &fs_sb.inode[*it];
 
 			strncpy(name, inode->name, 5);
 			name[5] = 0;
@@ -745,9 +745,9 @@ void fs_ls(void)
 */
 void fs_resize(char name[5], int new_size)
 {
-	if (disk_fd < 0)
+	if (fs_fd < 0)
 	{
-		// No disk mounted
+		// No file system mounted
 		fprintf(stderr, "Error: No file system is mounted\n");
 		return;
 	}
@@ -760,7 +760,7 @@ void fs_resize(char name[5], int new_size)
 		return;
 	}
 
-	Inode *inode = &disk_sb.inode[inode_index];
+	Inode *inode = &fs_sb.inode[inode_index];
 	if (CHECK_BIT(inode->dir_parent, 7))
 	{
 		// Given name belongs to directory
@@ -777,7 +777,7 @@ void fs_resize(char name[5], int new_size)
 		{
 			uint8_t list_index = i / 8;
 			uint8_t bit_index = 7 - (i % 8);
-			char fb_byte = disk_sb.free_block_list[list_index];
+			char fb_byte = fs_sb.free_block_list[list_index];
 
 			if (CHECK_BIT(fb_byte, bit_index))
 			{
@@ -793,24 +793,24 @@ void fs_resize(char name[5], int new_size)
 			inode->used_size = 0x80 | new_size;
 
 			// Update superblock on disk
-			lseek(disk_fd, 0, SEEK_SET);
-			write(disk_fd, disk_sb.free_block_list, 16);
-			lseek(disk_fd, inode_index * 8, SEEK_CUR);
-			write(disk_fd, inode, 8);
+			lseek(fs_fd, 0, SEEK_SET);
+			write(fs_fd, fs_sb.free_block_list, 16);
+			lseek(fs_fd, inode_index * 8, SEEK_CUR);
+			write(fs_fd, inode, 8);
 
 			return;
 		}
 
 		// Save existing free block list and remove allocated blocks from list
 		char saved_free_block_list[16];
-		memcpy(saved_free_block_list, disk_sb.free_block_list, 16);
+		memcpy(saved_free_block_list, fs_sb.free_block_list, 16);
 		fs_set_free_blocks(inode->start_block, inode->start_block + size - 1, 0);
 
 		uint8_t start_block_num = 0;
 
 		for (uint8_t i = 0; i < 16; i++)
 		{
-			char fb_byte = disk_sb.free_block_list[i];
+			char fb_byte = fs_sb.free_block_list[i];
 
 			for (uint8_t j = 0; j < 8; j++)
 			{
@@ -844,14 +844,14 @@ void fs_resize(char name[5], int new_size)
 				uint8_t empty_buff[1024] = {0};
 				for (uint8_t i = 0; i < size; i++)
 				{
-					lseek(disk_fd, (inode->start_block + i) * 1024, SEEK_SET);
-					read(disk_fd, buff, 1024);
+					lseek(fs_fd, (inode->start_block + i) * 1024, SEEK_SET);
+					read(fs_fd, buff, 1024);
 
-					lseek(disk_fd, (start_block_num + i) * 1024, SEEK_SET);
-					write(disk_fd, buff, 1024);
+					lseek(fs_fd, (start_block_num + i) * 1024, SEEK_SET);
+					write(fs_fd, buff, 1024);
 
-					lseek(disk_fd, (inode->start_block + i) * 1024, SEEK_SET);
-					write(disk_fd, empty_buff, 1024);
+					lseek(fs_fd, (inode->start_block + i) * 1024, SEEK_SET);
+					write(fs_fd, empty_buff, 1024);
 				}
 
 				// Update inode
@@ -859,17 +859,17 @@ void fs_resize(char name[5], int new_size)
 				inode->start_block = start_block_num;
 
 				// Update superblock on disk
-				lseek(disk_fd, 0, SEEK_SET);
-				write(disk_fd, disk_sb.free_block_list, 16);
-				lseek(disk_fd, inode_index * 8, SEEK_CUR);
-				write(disk_fd, inode, 8);
+				lseek(fs_fd, 0, SEEK_SET);
+				write(fs_fd, fs_sb.free_block_list, 16);
+				lseek(fs_fd, inode_index * 8, SEEK_CUR);
+				write(fs_fd, inode, 8);
 
 				return;
 			}
 		}
 
 		// Restore free block list and reject new size
-		memcpy(disk_sb.free_block_list, saved_free_block_list, 16);
+		memcpy(fs_sb.free_block_list, saved_free_block_list, 16);
 		fprintf(stderr, "Error: File %s cannot expand to size %d\n", name, new_size);
 	}
 	else if (new_size < size)
@@ -877,10 +877,10 @@ void fs_resize(char name[5], int new_size)
 		// Delete data from blocks to deallocate
 		size_t size = inode->used_size & 0x7F;
 		uint8_t empty_buff[1024] = {0};
-		lseek(disk_fd, (inode->start_block + new_size) * 1024, SEEK_SET);
+		lseek(fs_fd, (inode->start_block + new_size) * 1024, SEEK_SET);
 		for (uint8_t i = 0; i < (size - new_size); i++)
 		{
-			write(disk_fd, empty_buff, 1024);
+			write(fs_fd, empty_buff, 1024);
 		}
 
 		// Update superblock
@@ -888,10 +888,10 @@ void fs_resize(char name[5], int new_size)
 		inode->used_size = 0x80 | new_size;
 
 		// Update superblock on disk
-		lseek(disk_fd, 0, SEEK_SET);
-		write(disk_fd, disk_sb.free_block_list, 16);
-		lseek(disk_fd, inode_index * 8, SEEK_CUR);
-		write(disk_fd, inode, 8);
+		lseek(fs_fd, 0, SEEK_SET);
+		write(fs_fd, fs_sb.free_block_list, 16);
+		lseek(fs_fd, inode_index * 8, SEEK_CUR);
+		write(fs_fd, inode, 8);
 	}
 }
 
@@ -901,9 +901,9 @@ void fs_resize(char name[5], int new_size)
 */
 void fs_defrag(void)
 {
-	if (disk_fd < 0)
+	if (fs_fd < 0)
 	{
-		// No disk mounted
+		// No file system mounted
 		fprintf(stderr, "Error: No file system is mounted\n");
 		return;
 	}
@@ -913,7 +913,7 @@ void fs_defrag(void)
 	// Arrange inodes in order they appear on disk
 	for (uint8_t i = 0; i < 126; i++)
 	{
-		Inode *inode = &disk_sb.inode[i];
+		Inode *inode = &fs_sb.inode[i];
 		if (CHECK_BIT(inode->used_size, 7))
 		{
 			if (CHECK_BIT(inode->dir_parent, 7) == 0)
@@ -930,7 +930,7 @@ void fs_defrag(void)
 	{
 		uint8_t inode_index = inodes.top();
 
-		Inode *inode = &disk_sb.inode[inode_index];
+		Inode *inode = &fs_sb.inode[inode_index];
 		uint8_t size = inode->used_size & 0x7F;
 
 		// Check if file is occupying next "avaliable" block
@@ -941,20 +941,20 @@ void fs_defrag(void)
 			uint8_t empty_buff[1024] = {0};
 			for (uint8_t i = 0; i < size; i++)
 			{
-				lseek(disk_fd, (inode->start_block + i) * 1024, SEEK_SET);
-				read(disk_fd, buff, 1024);
+				lseek(fs_fd, (inode->start_block + i) * 1024, SEEK_SET);
+				read(fs_fd, buff, 1024);
 
-				lseek(disk_fd, (next_available_block + i) * 1024, SEEK_SET);
-				write(disk_fd, buff, 1024);
+				lseek(fs_fd, (next_available_block + i) * 1024, SEEK_SET);
+				write(fs_fd, buff, 1024);
 
-				lseek(disk_fd, (inode->start_block + i) * 1024, SEEK_SET);
-				write(disk_fd, empty_buff, 1024);
+				lseek(fs_fd, (inode->start_block + i) * 1024, SEEK_SET);
+				write(fs_fd, empty_buff, 1024);
 			}
 
 			// Update inode on disk
 			inode->start_block = next_available_block;
-			lseek(disk_fd, (inode_index + 2) * 8, SEEK_SET);
-			write(disk_fd, inode, 8);
+			lseek(fs_fd, (inode_index + 2) * 8, SEEK_SET);
+			write(fs_fd, inode, 8);
 		}
 
 		// Update next "available" block
@@ -969,8 +969,8 @@ void fs_defrag(void)
 	{
 		fs_set_free_blocks(next_available_block, 127, 0);
 	}
-	lseek(disk_fd, 0, SEEK_SET);
-	write(disk_fd, disk_sb.free_block_list, 16);
+	lseek(fs_fd, 0, SEEK_SET);
+	write(fs_fd, fs_sb.free_block_list, 16);
 }
 
 
@@ -980,9 +980,9 @@ void fs_defrag(void)
 */
 void fs_cd(char name[5])
 {
-	if (disk_fd < 0)
+	if (fs_fd < 0)
 	{
-		// No disk mounted
+		// No file system mounted
 		fprintf(stderr, "Error: No file system is mounted\n");
 		return;
 	}
@@ -998,7 +998,7 @@ void fs_cd(char name[5])
 		if (curr_dir != 127)
 		{
 			// Change to parent directory
-			Inode *inode = &disk_sb.inode[curr_dir];
+			Inode *inode = &fs_sb.inode[curr_dir];
 			uint8_t parent = inode->dir_parent & 0x7F;
 			curr_dir = parent;
 		}
@@ -1013,7 +1013,7 @@ void fs_cd(char name[5])
 		return;
 	}
 
-	Inode *inode = &disk_sb.inode[inode_index];
+	Inode *inode = &fs_sb.inode[inode_index];
 	if (CHECK_BIT(inode->dir_parent, 7) == 0)
 	{
 		// Given name belongs to file
@@ -1205,9 +1205,9 @@ int main(int argc, char **argv)
     }
 
 	// Close disk
-	if (disk_fd >= 0)
+	if (fs_fd >= 0)
 	{
-		close(disk_fd);
+		close(fs_fd);
 	}
     fclose(fp);
 
