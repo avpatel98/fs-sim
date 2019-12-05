@@ -31,17 +31,19 @@ uint8_t fs_tokenize(char *command_str, char **tokens)
 	for (num = 1; num < 6; num++)
 	{
 		tokens[num - 1] = token;
-		token = strtok(NULL, " \t");
+
+		if (strcmp(tokens[0], "B") == 0)
+		{
+			token = strtok(NULL, "");
+		}
+		else
+		{
+			token = strtok(NULL, " \t");
+		}
 
         if (token == NULL)
         {
             break;
-        }
-
-        if (strcmp(tokens[0], "B") == 0)
-        {
-            tokens[1] = token;
-            return 2;
         }
 	}
 
@@ -71,6 +73,15 @@ int fs_validate_block_num(int block_num)
         return 0;
     }
     return -1;
+}
+
+int fs_validate_size(int size)
+{
+	if ((size >= 0) && (size <= 127))
+	{
+		return 0;
+	}
+	return -1;
 }
 
 int fs_check_for_file(char name[5])
@@ -348,6 +359,7 @@ void fs_mount(char *new_disk_name)
 	strcpy(disk_name, new_disk_name);
     curr_dir = 127;
 
+	dir_map.clear();
     dir_map.insert(std::pair< uint8_t, std::set<uint8_t> >(curr_dir, std::set<uint8_t>()));
 
     for (uint8_t i = 0; i < 126; i++)
@@ -356,20 +368,21 @@ void fs_mount(char *new_disk_name)
 
         if (CHECK_BIT(inode->used_size, 7))
         {
-            if (CHECK_BIT(inode->dir_parent, 7) == 0)
+			uint8_t parent = inode->dir_parent & 0x7F;
+
+			if (CHECK_BIT(inode->dir_parent, 7) == 0)
             {
-				uint8_t parent = inode->dir_parent & 0x7F;
 				if (dir_map.find(parent) == dir_map.end())
 				{
 					dir_map.insert(std::pair< uint8_t, std::set<uint8_t> >(parent, std::set<uint8_t>()));
 				}
-
-				dir_map[parent].insert(i);
             }
 			else if (dir_map.find(i) == dir_map.end())
 			{
 				dir_map.insert(std::pair< uint8_t, std::set<uint8_t> >(i, std::set<uint8_t>()));
 			}
+
+			dir_map[parent].insert(i);
         }
     }
 }
@@ -401,47 +414,44 @@ void fs_create(char name[5], int size)
 			{
 				uint8_t found_space = 0;
 
-				if (size <= 127)
+				for (uint8_t j = 0; j < 16; j++)
 				{
-					for (uint8_t j = 0; j < 16; j++)
+					char fb_byte = disk_sb.free_block_list[j];
+
+					for (uint8_t k = 0; k < 8; k++)
 					{
-						char fb_byte = disk_sb.free_block_list[j];
+						uint8_t block_num = (j * 8) + k;
 
-						for (uint8_t k = 0; k < 8; k++)
+						if (CHECK_BIT(fb_byte, 7 - k) == 0)
 						{
-							uint8_t block_num = (j * 8) + k;
-
-							if (CHECK_BIT(fb_byte, 7 - k) == 0)
+							if (start_block_num == 0)
 							{
-								if (start_block_num == 0)
-								{
-									start_block_num = block_num;
-								}
-
-								if ((start_block_num + size - 1) == block_num)
-								{
-									fs_set_free_blocks(start_block_num, block_num, 1);
-									found_space = 1;
-									break;
-								}
+								start_block_num = block_num;
 							}
-							else
+
+							if ((start_block_num + size - 1) == block_num)
 							{
-								start_block_num = 0;
+								fs_set_free_blocks(start_block_num, block_num, 1);
+								found_space = 1;
+								break;
 							}
 						}
-
-						if (found_space)
+						else
 						{
-							break;
+							start_block_num = 0;
 						}
+					}
+
+					if (found_space)
+					{
+						break;
 					}
 				}
 
 				if (found_space == 0)
 				{
 					// TODO: Test this line with name of length 5
-					fprintf(stderr, "Error: Cannot allocate %s on %s\n", name, disk_name);
+					fprintf(stderr, "Error: Cannot allocate %d on %s\n", size, disk_name);
 					return;
 				}
 
@@ -486,7 +496,6 @@ void fs_delete_r(uint8_t inode_index)
 				fs_delete_r(*it);
 			}
 		}
-		dir_map.erase(inode_index);
 	}
 	else
 	{
@@ -504,6 +513,9 @@ void fs_delete_r(uint8_t inode_index)
 		lseek(disk_fd, 0, SEEK_SET);
 		write(disk_fd, disk_sb.free_block_list, 16);
 	}
+
+	uint8_t parent = inode->dir_parent & 0x7F;
+	dir_map[parent].erase(inode_index);
 
 	memset(inode->name, 0, 5);
 	inode->used_size = 0;
@@ -608,8 +620,16 @@ void fs_write(char name[5], int block_num)
 
 void fs_buff(uint8_t buff[1024])
 {
+	if (disk_fd < 0)
+	{
+		fprintf(stderr, "Error: No file system is mounted\n");
+		return;
+	}
+
 	memset(data_buffer, 0, 1024);
 	memcpy(data_buffer, buff, strlen((char *) buff));
+
+	printf("%s", data_buffer);
 }
 
 void fs_ls(void)
@@ -640,8 +660,6 @@ void fs_ls(void)
 		for (std::set<uint8_t>::iterator it = dir_map[curr_dir].begin(); it != dir_map[curr_dir].end(); it++)
 		{
 			Inode *inode = &disk_sb.inode[*it];
-
-			printf("%u\n", *it);
 
 			strncpy(name, inode->name, 5);
 			name[5] = 0;
@@ -687,28 +705,89 @@ void fs_resize(char name[5], int new_size)
 	uint8_t size = inode->used_size & 0x7F;
 	if (new_size > size)
 	{
-		if (new_size <= 127)
+		uint8_t found_space = 1;
+
+		for (uint8_t i = inode->start_block + size; i < (inode->start_block + new_size); i++)
 		{
-			uint8_t found_space = 1;
+			uint8_t list_index = i / 8;
+			uint8_t bit_index = 7 - (i % 8);
+			char fb_byte = disk_sb.free_block_list[list_index];
 
-			for (uint8_t i = inode->start_block + size; i < (inode->start_block + new_size); i++)
+			if (CHECK_BIT(fb_byte, bit_index))
 			{
-				uint8_t list_index = i / 8;
-				uint8_t bit_index = 7 - (i % 8);
-				char fb_byte = disk_sb.free_block_list[list_index];
+				found_space = 0;
+				break;
+			}
+		}
 
-				if (CHECK_BIT(fb_byte, bit_index))
+		if (found_space)
+		{
+			fs_set_free_blocks(inode->start_block + size, inode->start_block + new_size - 1, 1);
+
+			inode->used_size = 0x80 | new_size;
+
+			lseek(disk_fd, 0, SEEK_SET);
+			write(disk_fd, disk_sb.free_block_list, 16);
+
+			lseek(disk_fd, inode_index * 8, SEEK_CUR);
+			write(disk_fd, inode, 8);
+
+			return;
+		}
+
+		uint8_t start_block_num = 0;
+
+		for (uint8_t i = 0; i < 16; i++)
+		{
+			char fb_byte = disk_sb.free_block_list[i];
+
+			for (uint8_t j = 0; j < 8; j++)
+			{
+				uint8_t block_num = (i * 8) + j;
+
+				if (CHECK_BIT(fb_byte, 7 - j) == 0)
 				{
-					found_space = 0;
-					break;
+					if (start_block_num == 0)
+					{
+						start_block_num = block_num;
+					}
+
+					if ((start_block_num + new_size - 1) == block_num)
+					{
+						fs_set_free_blocks(start_block_num, block_num, 1);
+						found_space = 1;
+						break;
+					}
+				}
+				else
+				{
+					start_block_num = 0;
 				}
 			}
 
 			if (found_space)
 			{
-				fs_set_free_blocks(inode->start_block + size, inode->start_block + new_size - 1, 1);
+				uint8_t buff[1024];
+				for (uint8_t i = 0; i < size; i++)
+				{
+					lseek(disk_fd, (inode->start_block + i) * 1024, SEEK_SET);
+					read(disk_fd, buff, 1024);
+
+					lseek(disk_fd, (start_block_num + i) * 1024, SEEK_SET);
+					write(disk_fd, buff, 1024);
+				}
+
+				uint8_t empty_buff[1024] = {0};
+				lseek(disk_fd, (inode->start_block) * 1024, SEEK_SET);
+				for (uint8_t i = 0; i < size; i++)
+				{
+					write(disk_fd, empty_buff, 1024);
+				}
+
+				fs_set_free_blocks(inode->start_block, inode->start_block + size - 1, 0);
 
 				inode->used_size = 0x80 | new_size;
+				inode->start_block = start_block_num;
 
 				lseek(disk_fd, 0, SEEK_SET);
 				write(disk_fd, disk_sb.free_block_list, 16);
@@ -718,77 +797,15 @@ void fs_resize(char name[5], int new_size)
 
 				return;
 			}
-
-			uint8_t start_block_num = 0;
-
-			for (uint8_t i = 0; i < 16; i++)
-			{
-				char fb_byte = disk_sb.free_block_list[i];
-
-				for (uint8_t j = 0; j < 8; j++)
-				{
-					uint8_t block_num = (i * 8) + j;
-
-					if (CHECK_BIT(fb_byte, 7 - j) == 0)
-					{
-						if (start_block_num == 0)
-						{
-							start_block_num = block_num;
-						}
-
-						if ((start_block_num + new_size - 1) == block_num)
-						{
-							fs_set_free_blocks(start_block_num, block_num, 1);
-							found_space = 1;
-							break;
-						}
-					}
-					else
-					{
-						start_block_num = 0;
-					}
-				}
-
-				if (found_space)
-				{
-					uint8_t buff[1024];
-					for (uint8_t i = 0; i < size; i++)
-					{
-						lseek(disk_fd, (inode->start_block + i) * 1024, SEEK_SET);
-						read(disk_fd, buff, 1024);
-
-						lseek(disk_fd, (start_block_num + i) * 1024, SEEK_SET);
-						write(disk_fd, buff, 1024);
-					}
-
-					uint8_t empty_buff[1024] = {0};
-					lseek(disk_fd, (inode->start_block) * 1024, SEEK_SET);
-					for (uint8_t i = 0; i < size; i++)
-					{
-						write(disk_fd, empty_buff, 1024);
-					}
-
-					fs_set_free_blocks(inode->start_block, inode->start_block + size - 1, 0);
-
-					inode->used_size = 0x80 | new_size;
-					inode->start_block = start_block_num;
-
-					lseek(disk_fd, 0, SEEK_SET);
-					write(disk_fd, disk_sb.free_block_list, 16);
-
-					lseek(disk_fd, inode_index * 8, SEEK_CUR);
-					write(disk_fd, inode, 8);
-
-					return;
-				}
-			}
 		}
 
 		// TODO: Test this line with name of length 5
-		fprintf(stderr, "Error: Cannot allocate %s on %s\n", name, disk_name);
+		fprintf(stderr, "File %s cannot expand to size %d\n", name, new_size);
 	}
 	else if (new_size < size)
 	{
+		printf("New size: %d\n", new_size);
+
 		size_t size = inode->used_size & 0x7F;
 		uint8_t empty_buff[1024] = {0};
 
@@ -944,8 +961,6 @@ int main(int argc, char **argv)
     char cmd_str[CMD_MAX_SIZE];
     int line_num = 1;
 
-	// TODO: Validate size
-
     // Read one line from input file at a time
     while (fgets(cmd_str, CMD_MAX_SIZE, fp) != NULL)
 	//while (fgets(cmd_str, CMD_MAX_SIZE, stdin) != NULL)
@@ -958,152 +973,150 @@ int main(int argc, char **argv)
             {
                 // Strip newline character
                 cmd_str[cmd_len - 1] = '\0';
+			}
 
-                char *cmd_args[5] = {NULL};
-                uint8_t cmd_args_num = fs_tokenize(cmd_str, cmd_args);
+            char *cmd_args[5] = {NULL};
+            uint8_t cmd_args_num = fs_tokenize(cmd_str, cmd_args);
 
-                char *cmd = cmd_args[0];
+            char *cmd = cmd_args[0];
 
-				// for (uint8_t i = 0; i < cmd_args_num; i++)
-				// {
-				// 	printf("%s\n", cmd_args[i]);
-				// }
-				//
-				// printf("%u\n", cmd_args_num);
-
-                if (strcmp(cmd, "M") == 0)
+            if (strcmp(cmd, "M") == 0)
+            {
+				if (cmd_args_num == 2)
                 {
-					if (cmd_args_num == 2)
-                    {
-                        char *new_disk_name = cmd_args[1];
+                    char *new_disk_name = cmd_args[1];
 
-                        fs_mount(new_disk_name);
+                    fs_mount(new_disk_name);
+					line_num++;
+                    continue;
+                }
+            }
+            else if (strcmp(cmd, "C") == 0)
+            {
+				if (cmd_args_num == 3)
+                {
+                    char *name = cmd_args[1];
+                    int size = atoi(cmd_args[2]);
+
+                    if ((fs_validate_name(name) == 0)
+						&& fs_validate_size(size) == 0)
+                    {
+						fs_create(name, size);
 						line_num++;
                         continue;
                     }
                 }
-                else if (strcmp(cmd, "C") == 0)
+            }
+            else if (strcmp(cmd, "D") == 0)
+            {
+                if (cmd_args_num == 2)
                 {
-					if (cmd_args_num == 3)
-                    {
-                        char *name = cmd_args[1];
-                        int size = atoi(cmd_args[2]);
+                    char *name = cmd_args[1];
 
-                        if (fs_validate_name(name) == 0)
-                        {
-							fs_create(name, size);
-							line_num++;
-                            continue;
-                        }
-                    }
-                }
-                else if (strcmp(cmd, "D") == 0)
-                {
-                    if (cmd_args_num == 2)
+                    if (fs_validate_name(name) == 0)
                     {
-                        char *name = cmd_args[1];
-
-                        if (fs_validate_name(name) == 0)
-                        {
-                            fs_delete(name);
-							line_num++;
-                            continue;
-                        }
-                    }
-                }
-                else if (strcmp(cmd, "R") == 0)
-                {
-                    if (cmd_args_num == 3)
-                    {
-                        char *name = cmd_args[1];
-                        int block_num = atoi(cmd_args[2]);
-
-                        if ((fs_validate_name(name) == 0)
-                            && (fs_validate_block_num(block_num) == 0))
-                        {
-                            fs_read(name, block_num);
-							line_num++;
-                            continue;
-                        }
-                    }
-                }
-                else if (strcmp(cmd, "W") == 0)
-                {
-                    if (cmd_args_num == 3)
-                    {
-                        char *name = cmd_args[1];
-                        int block_num = atoi(cmd_args[2]);
-
-                        if ((fs_validate_name(name) == 0)
-                            && (fs_validate_block_num(block_num) == 0))
-                        {
-                            fs_write(name, block_num);
-							line_num++;
-                            continue;
-                        }
-                    }
-                }
-                else if (strcmp(cmd, "B") == 0)
-                {
-                    if (cmd_args_num == 2)
-                    {
-                        size_t buff_len = strlen(cmd_args[1]);
-
-                        if (buff_len <= 1024)
-                        {
-                            uint8_t *buff = (uint8_t *) cmd_args[1];
-
-                            fs_buff(buff);
-							line_num++;
-                            continue;
-                        }
-                    }
-                }
-                else if (strcmp(cmd, "L") == 0)
-                {
-                    if (cmd_args_num == 1)
-                    {
-                        fs_ls();
+                        fs_delete(name);
 						line_num++;
                         continue;
                     }
                 }
-                else if (strcmp(cmd, "E") == 0)
+            }
+            else if (strcmp(cmd, "R") == 0)
+            {
+                if (cmd_args_num == 3)
                 {
-                    if (cmd_args_num == 3)
-                    {
-                        char *name = cmd_args[1];
-                        int new_size = atoi(cmd_args[2]);
+                    char *name = cmd_args[1];
+                    int block_num = atoi(cmd_args[2]);
 
-                        if (fs_validate_name(name) == 0)
-                        {
-                            fs_resize(name, new_size);
-							line_num++;
-                            continue;
-                        }
-                    }
-                }
-                else if (strcmp(cmd, "O") == 0)
-                {
-                    if (cmd_args_num == 1)
+                    if ((fs_validate_name(name) == 0)
+                        && (fs_validate_block_num(block_num) == 0))
                     {
-                        fs_defrag();
+                        fs_read(name, block_num);
 						line_num++;
                         continue;
                     }
                 }
-                else if (strcmp(cmd, "Y") == 0)
+            }
+            else if (strcmp(cmd, "W") == 0)
+            {
+                if (cmd_args_num == 3)
                 {
-                    if (cmd_args_num == 2)
-                    {
-                        char *name = cmd_args[1];
+                    char *name = cmd_args[1];
+                    int block_num = atoi(cmd_args[2]);
 
-                        if (fs_validate_name(name) == 0)
-                        {
-                            fs_cd(name);
+                    if ((fs_validate_name(name) == 0)
+                        && (fs_validate_block_num(block_num) == 0))
+                    {
+                        fs_write(name, block_num);
+						line_num++;
+                        continue;
+                    }
+                }
+            }
+            else if (strcmp(cmd, "B") == 0)
+            {
+                if (cmd_args_num == 2)
+                {
+                    size_t buff_len = strlen(cmd_args[1]);
+
+                    if (buff_len <= 1024)
+                    {
+                        uint8_t *buff = (uint8_t *) cmd_args[1];
+
+                        fs_buff(buff);
+						line_num++;
+                        continue;
+                    }
+                }
+            }
+            else if (strcmp(cmd, "L") == 0)
+            {
+                if (cmd_args_num == 1)
+                {
+                    fs_ls();
+					line_num++;
+                    continue;
+                }
+            }
+            else if (strcmp(cmd, "E") == 0)
+            {
+                if (cmd_args_num == 3)
+                {
+                    char *name = cmd_args[1];
+                    int new_size = atoi(cmd_args[2]);
+
+                    if ((fs_validate_name(name) == 0)
+						&& (fs_validate_size(new_size) == 0))
+                    {
+						if (new_size != 0)
+						{
+							fs_resize(name, new_size);
 							line_num++;
                             continue;
-                        }
+						}
+                    }
+                }
+            }
+            else if (strcmp(cmd, "O") == 0)
+            {
+				if (cmd_args_num == 1)
+                {
+                    fs_defrag();
+					line_num++;
+                    continue;
+                }
+            }
+            else if (strcmp(cmd, "Y") == 0)
+            {
+                if (cmd_args_num == 2)
+                {
+                    char *name = cmd_args[1];
+
+                    if (strlen(name) <= 5)
+                    {
+                        fs_cd(name);
+						line_num++;
+                        continue;
                     }
                 }
             }
