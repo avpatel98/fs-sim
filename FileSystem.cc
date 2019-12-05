@@ -1048,153 +1048,160 @@ int main(int argc, char **argv)
     int line_num = 1;
 
     // Read one line from input file at a time
-    while (fgets(cmd_str, CMD_MAX_SIZE, fp) != NULL)
-	// while (fgets(cmd_str, CMD_MAX_SIZE, stdin) != NULL)
+    //while (fgets(cmd_str, CMD_MAX_SIZE, fp) != NULL)
+	while (fgets(cmd_str, CMD_MAX_SIZE, stdin) != NULL)
     {
-        size_t cmd_len = strlen(cmd_str);
+		// Strip newline character or continue if empty command
+		size_t cmd_len = strlen(cmd_str);
+		if (cmd_len > 0)
+		{
 
-        if (cmd_len > 0)
-        {
-            if (cmd_str[cmd_len - 1] == '\n')
-            {
-                // Strip newline character
-                cmd_str[cmd_len - 1] = '\0';
+			if (cmd_str[cmd_len - 1] == '\n')
+			{
+				if (cmd_len == 1)
+				{
+					continue;
+				}
+				else
+				{
+					cmd_str[cmd_len - 1] = '\0';
+				}
 			}
+		}
 
-            char *cmd_args[4] = {NULL};
-            uint8_t cmd_args_num = fs_tokenize(cmd_str, cmd_args);
+        char *cmd_args[4] = {NULL};
+        uint8_t cmd_args_num = fs_tokenize(cmd_str, cmd_args);
 
-            char *cmd = cmd_args[0];
+        char *cmd = cmd_args[0];
 
-            if (strcmp(cmd, "M") == 0)
+        if (strcmp(cmd, "M") == 0)
+        {
+			if (cmd_args_num == 2)
             {
-				if (cmd_args_num == 2)
-                {
-                    char *new_disk_name = cmd_args[1];
+                char *new_disk_name = cmd_args[1];
 
-                    fs_mount(new_disk_name);
+                fs_mount(new_disk_name);
+				line_num++;
+                continue;
+            }
+        }
+        else if (strcmp(cmd, "C") == 0)
+        {
+			if (cmd_args_num == 3)
+            {
+                char *name = cmd_args[1];
+                int size = atoi(cmd_args[2]);
+
+                if ((strlen(name) <= 5) && (size >= 0) && (size <= 127))
+                {
+					fs_create(name, size);
 					line_num++;
                     continue;
                 }
             }
-            else if (strcmp(cmd, "C") == 0)
+        }
+        else if (strcmp(cmd, "D") == 0)
+        {
+            if (cmd_args_num == 2)
             {
-				if (cmd_args_num == 3)
-                {
-                    char *name = cmd_args[1];
-                    int size = atoi(cmd_args[2]);
+                char *name = cmd_args[1];
 
-                    if ((strlen(name) <= 5) && (size >= 0) && (size <= 127))
-                    {
-						fs_create(name, size);
-						line_num++;
-                        continue;
-                    }
-                }
-            }
-            else if (strcmp(cmd, "D") == 0)
-            {
-                if (cmd_args_num == 2)
+                if (strlen(name) <= 5)
                 {
-                    char *name = cmd_args[1];
-
-                    if (strlen(name) <= 5)
-                    {
-                        fs_delete(name);
-						line_num++;
-                        continue;
-                    }
-                }
-            }
-            else if (strcmp(cmd, "R") == 0)
-            {
-                if (cmd_args_num == 3)
-                {
-                    char *name = cmd_args[1];
-                    int block_num = atoi(cmd_args[2]);
-
-                    if ((strlen(name) <= 5) && (block_num >= 0) && (block_num <= 126))
-                    {
-                        fs_read(name, block_num);
-						line_num++;
-                        continue;
-                    }
-                }
-            }
-            else if (strcmp(cmd, "W") == 0)
-            {
-                if (cmd_args_num == 3)
-                {
-                    char *name = cmd_args[1];
-                    int block_num = atoi(cmd_args[2]);
-
-                    if ((strlen(name) <= 5) && (block_num >= 0) && (block_num <= 126))
-                    {
-                        fs_write(name, block_num);
-						line_num++;
-                        continue;
-                    }
-                }
-            }
-            else if (strcmp(cmd, "B") == 0)
-            {
-                if (cmd_args_num == 2)
-                {
-                    if (strlen(cmd_args[1]) <= 1024)
-                    {
-                        uint8_t *buff = (uint8_t *) cmd_args[1];
-
-                        fs_buff(buff);
-						line_num++;
-                        continue;
-                    }
-                }
-            }
-            else if (strcmp(cmd, "L") == 0)
-            {
-                if (cmd_args_num == 1)
-                {
-                    fs_ls();
+                    fs_delete(name);
 					line_num++;
                     continue;
                 }
             }
-            else if (strcmp(cmd, "E") == 0)
+        }
+        else if (strcmp(cmd, "R") == 0)
+        {
+            if (cmd_args_num == 3)
             {
-                if (cmd_args_num == 3)
-                {
-                    char *name = cmd_args[1];
-                    int new_size = atoi(cmd_args[2]);
+                char *name = cmd_args[1];
+                int block_num = atoi(cmd_args[2]);
 
-                    if ((strlen(name) <= 5) && (new_size > 0) && (new_size <= 127))
-                    {
-						fs_resize(name, new_size);
-						line_num++;
-                        continue;
-                    }
-                }
-            }
-            else if (strcmp(cmd, "O") == 0)
-            {
-				if (cmd_args_num == 1)
+                if ((strlen(name) <= 5) && (block_num >= 0) && (block_num <= 126))
                 {
-                    fs_defrag();
+                    fs_read(name, block_num);
 					line_num++;
                     continue;
                 }
             }
-            else if (strcmp(cmd, "Y") == 0)
+        }
+        else if (strcmp(cmd, "W") == 0)
+        {
+            if (cmd_args_num == 3)
             {
-                if (cmd_args_num == 2)
-                {
-                    char *name = cmd_args[1];
+                char *name = cmd_args[1];
+                int block_num = atoi(cmd_args[2]);
 
-                    if (strlen(name) <= 5)
-                    {
-                        fs_cd(name);
-						line_num++;
-                        continue;
-                    }
+                if ((strlen(name) <= 5) && (block_num >= 0) && (block_num <= 126))
+                {
+                    fs_write(name, block_num);
+					line_num++;
+                    continue;
+                }
+            }
+        }
+        else if (strcmp(cmd, "B") == 0)
+        {
+            if (cmd_args_num == 2)
+            {
+                if (strlen(cmd_args[1]) <= 1024)
+                {
+                    uint8_t *buff = (uint8_t *) cmd_args[1];
+
+                    fs_buff(buff);
+					line_num++;
+                    continue;
+                }
+            }
+        }
+        else if (strcmp(cmd, "L") == 0)
+        {
+            if (cmd_args_num == 1)
+            {
+                fs_ls();
+				line_num++;
+                continue;
+            }
+        }
+        else if (strcmp(cmd, "E") == 0)
+        {
+            if (cmd_args_num == 3)
+            {
+                char *name = cmd_args[1];
+                int new_size = atoi(cmd_args[2]);
+
+                if ((strlen(name) <= 5) && (new_size > 0) && (new_size <= 127))
+                {
+					fs_resize(name, new_size);
+					line_num++;
+                    continue;
+                }
+            }
+        }
+        else if (strcmp(cmd, "O") == 0)
+        {
+			if (cmd_args_num == 1)
+            {
+                fs_defrag();
+				line_num++;
+                continue;
+            }
+        }
+        else if (strcmp(cmd, "Y") == 0)
+        {
+            if (cmd_args_num == 2)
+            {
+                char *name = cmd_args[1];
+
+                if (strlen(name) <= 5)
+                {
+                    fs_cd(name);
+					line_num++;
+                    continue;
                 }
             }
         }
