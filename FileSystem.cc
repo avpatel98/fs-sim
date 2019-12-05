@@ -54,7 +54,7 @@ uint8_t fs_tokenize(char *command_str, char **argv)
 	// Do not tokenize at whitespace if command is B
 	if (strcmp(token, "B") == 0)
 	{
-		delim = "";
+		delim[0] = 0;
 	}
 
 	for (num = 1; num < 5; num++)
