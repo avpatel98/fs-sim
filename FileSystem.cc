@@ -490,7 +490,7 @@ void fs_create(char name[5], int size)
 			// Update superblock on disk
 			lseek(fs_fd, 0, SEEK_SET);
 			write(fs_fd, fs_sb.free_block_list, 16);
-			lseek(fs_fd, i * 8, SEEK_CUR);
+			lseek(fs_fd, (i + 2) * 8, SEEK_SET);
 			write(fs_fd, inode, 8);
 
 			dir_map[curr_dir].insert(i);
@@ -527,9 +527,9 @@ void fs_delete_r(uint8_t inode_index)
 		// Delete file data
 		size_t size = inode->used_size & 0x7F;
 		uint8_t empty_buff[1024] = {0};
-		lseek(fs_fd, inode->start_block * 1024, SEEK_SET);
 		for (uint8_t i = 0; i < size; i++)
 		{
+			lseek(fs_fd, (inode->start_block + i) * 1024, SEEK_SET);
 			write(fs_fd, empty_buff, 1024);
 		}
 
@@ -771,34 +771,38 @@ void fs_resize(char name[5], int new_size)
 	uint8_t size = inode->used_size & 0x7F;
 	if (new_size > size)
 	{
-		uint8_t found_space = 1;
+		uint8_t found_space = 0;
 
-		for (uint8_t i = inode->start_block + size; i < (inode->start_block + new_size); i++)
+		if ((inode->start_block + new_size) < 128)
 		{
-			uint8_t list_index = i / 8;
-			uint8_t bit_index = 7 - (i % 8);
-			char fb_byte = fs_sb.free_block_list[list_index];
-
-			if (CHECK_BIT(fb_byte, bit_index))
+			found_space = 1;
+			for (uint8_t i = inode->start_block + size; i < (inode->start_block + new_size); i++)
 			{
-				found_space = 0;
-				break;
+				uint8_t list_index = i / 8;
+				uint8_t bit_index = 7 - (i % 8);
+				char fb_byte = fs_sb.free_block_list[list_index];
+
+				if (CHECK_BIT(fb_byte, bit_index))
+				{
+					found_space = 0;
+					break;
+				}
 			}
-		}
 
-		if (found_space)
-		{
-			// Found enough space after already allocated block
-			fs_set_free_blocks(inode->start_block + size, inode->start_block + new_size - 1, 1);
-			inode->used_size = 0x80 | new_size;
+			if (found_space)
+			{
+				// Found enough space after already allocated block
+				fs_set_free_blocks(inode->start_block + size, inode->start_block + new_size - 1, 1);
+				inode->used_size = 0x80 | new_size;
 
-			// Update superblock on disk
-			lseek(fs_fd, 0, SEEK_SET);
-			write(fs_fd, fs_sb.free_block_list, 16);
-			lseek(fs_fd, inode_index * 8, SEEK_CUR);
-			write(fs_fd, inode, 8);
+				// Update superblock on disk
+				lseek(fs_fd, 0, SEEK_SET);
+				write(fs_fd, fs_sb.free_block_list, 16);
+				lseek(fs_fd, (inode_index + 2) * 8, SEEK_SET);
+				write(fs_fd, inode, 8);
 
-			return;
+				return;
+			}
 		}
 
 		// Save existing free block list and remove allocated blocks from list
@@ -861,7 +865,7 @@ void fs_resize(char name[5], int new_size)
 				// Update superblock on disk
 				lseek(fs_fd, 0, SEEK_SET);
 				write(fs_fd, fs_sb.free_block_list, 16);
-				lseek(fs_fd, inode_index * 8, SEEK_CUR);
+				lseek(fs_fd, (inode_index + 2) * 8, SEEK_SET);
 				write(fs_fd, inode, 8);
 
 				return;
@@ -877,9 +881,9 @@ void fs_resize(char name[5], int new_size)
 		// Delete data from blocks to deallocate
 		size_t size = inode->used_size & 0x7F;
 		uint8_t empty_buff[1024] = {0};
-		lseek(fs_fd, (inode->start_block + new_size) * 1024, SEEK_SET);
 		for (uint8_t i = 0; i < (size - new_size); i++)
 		{
+			lseek(fs_fd, (inode->start_block + new_size + i) * 1024, SEEK_SET);
 			write(fs_fd, empty_buff, 1024);
 		}
 
@@ -890,7 +894,7 @@ void fs_resize(char name[5], int new_size)
 		// Update superblock on disk
 		lseek(fs_fd, 0, SEEK_SET);
 		write(fs_fd, fs_sb.free_block_list, 16);
-		lseek(fs_fd, inode_index * 8, SEEK_CUR);
+		lseek(fs_fd, (inode_index + 2) * 8, SEEK_SET);
 		write(fs_fd, inode, 8);
 	}
 }
